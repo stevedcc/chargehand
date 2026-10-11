@@ -1,0 +1,4 @@
+# Private: per-project retrospectives and ledgers (own git repo)
+records/
+# Orchestrator scratch
+.superpowers/

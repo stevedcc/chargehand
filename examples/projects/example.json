@@ -1,0 +1,23 @@
+{
+  "repo": "~/src/example",
+  "owner_worktree": "~/src/example",
+  "target_branch": "main",
+  "agent_clone": "/srv/agents/example",
+  "mirror": "/srv/agents/upstream/example.git",
+  "sdk_source": "~/sdk",
+  "sdk_dest": "/opt/sdk",
+  "e2e_command": "dev/run-e2e.sh --instances {N} --first-instance {K}",
+  "e2e_agent_instances": [1, 20],
+  "e2e_verify_first": 21,
+  "e2e_instances_per_run": 3,
+  "e2e_stop": "./stop-local.sh --e2e --instance {I}",
+  "port_check": "ss -ltn shows which ports are already in use",
+  "test_filter": "Passed!|Failed!|^\\s+Failed \\S+ \\[|Error Message",
+  "verify_build": "dotnet build Example.slnx -nologo -v quiet",
+  "verify_tests": ["dotnet test tests/Example.Tests --no-build"],
+  "toolchain": { "ro": ["/opt/sdk", "~/.cache/ms-playwright"], "rw": ["~/.nuget", "~/.dotnet"] },
+  "path_prepend": ["/opt/sdk", "~/.dotnet/tools"],
+  "sandbox_env": { "DOTNET_ROOT": "/opt/sdk", "DOTNET_CLI_TELEMETRY_OPTOUT": "1" },
+  "selftest_extra": [ { "name": "SDK present", "cmd": "dotnet --version" } ],
+  "roles": {}
+}

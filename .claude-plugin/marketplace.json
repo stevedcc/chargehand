@@ -1,0 +1,13 @@
+{
+  "name": "chargehand",
+  "owner": {
+    "name": "stevedcc"
+  },
+  "plugins": [
+    {
+      "name": "chargehand",
+      "source": "./",
+      "description": "Run headless OpenCode agents on written briefs from Claude Code, sandboxed and verified"
+    }
+  ]
+}

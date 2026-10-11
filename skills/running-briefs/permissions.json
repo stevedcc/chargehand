@@ -1,0 +1,277 @@
+[
+  {
+    "action": "shell",
+    "resource": "git push*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git remote*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git rebase*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git reset --hard*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git filter-branch*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git filter-repo*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git branch -D*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git branch -d*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git worktree remove*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git worktree prune*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git worktree move*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git worktree lock*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git worktree unlock*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git worktree repair*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git update-ref -d*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman rm*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman stop*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman kill*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman system*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker rm*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker stop*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker compose down -v*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker compose down --volumes*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm *",
+    "effect": "allow"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm * -v *",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm *--volume*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm *--mount*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm *--privileged*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm *--pid*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm *--userns*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm *--cap-add*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm *--device*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm *--security-opt*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm *",
+    "effect": "allow"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm * -v *",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm *--volume*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm *--mount*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm *--privileged*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm *--pid*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm *--userns*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm *--cap-add*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm *--device*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm *--security-opt*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm -v*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm --volume*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm --mount*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm --privileged*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm -v*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm --volume*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm --mount*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm --privileged*",
+    "effect": "deny"
+  },
+  {
+    "action": "external_directory",
+    "resource": "/tmp/*",
+    "effect": "allow"
+  },
+  {
+    "action": "external_directory",
+    "resource": "/tmp/**",
+    "effect": "allow"
+  }
+]
