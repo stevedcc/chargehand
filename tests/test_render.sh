@@ -58,4 +58,16 @@ test_sudoers() {
     assert_contains "selftest per project" "$out" '/usr/local/bin/chargehand-sandbox --selftest --project other'
     assert_contains "verify per project" "$out" '/usr/local/bin/chargehand-sandbox --verify --project demo *'
 }
+test_opencode_config_adds_superpowers() {
+    out="$(render_opencode_config /nonexistent /s go/m-1)"
+    assert_eq "added when missing" "$(jq -c .plugins <<<"$out")" '["superpowers@git+https://github.com/obra/superpowers.git"]'
+    echo '{"plugins": ["other-plugin"]}' > "$TEST_TMP/oc.json"
+    out="$(render_opencode_config "$TEST_TMP/oc.json" /s go/m-1)"
+    assert_eq "appended to others" "$(jq -c .plugins <<<"$out")" '["other-plugin","superpowers@git+https://github.com/obra/superpowers.git"]'
+    echo '{"plugins": ["superpowers@git+https://example/fork.git"]}' > "$TEST_TMP/oc.json"
+    out="$(render_opencode_config "$TEST_TMP/oc.json" /s go/m-1)"
+    assert_eq "an existing superpowers entry is kept, not doubled" "$(jq -c .plugins <<<"$out")" '["superpowers@git+https://example/fork.git"]'
+    out="$(render_opencode_config /nonexistent /s go/m-1 no)"
+    assert_eq "opt-out" "$(jq -c '.plugins // []' <<<"$out")" '[]'
+}
 run_tests

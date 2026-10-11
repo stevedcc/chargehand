@@ -13,7 +13,7 @@ failure this skill exists to prevent.
 ## The files (`~/.config/chargehand/`)
 | File | Holds |
 |---|---|
-| `config.json` | `server_url`, `server_user`, `server_password` (how to get it), `agent_user`, `launcher`, `forbidden_tools` |
+| `config.json` | `server_url`, `server_user`, `server_password` (how to get it), `agent_user`, `launcher`, `forbidden_tools`, `superpowers` (default true: setup adds the Superpowers plugin for the agent) |
 | `models.json` | `subscriptions` (provider → `pricing`, optional `ends`), `roles` (implementer, task_review, final_review, low_level → ordered model lists) |
 | `projects/<name>.json` | paths, branch, E2E and verify commands, toolchain, self-test extras, optional `roles` override |
 

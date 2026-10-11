@@ -1,8 +1,11 @@
 {
   "server_url": "http://127.0.0.1:4096",
   "server_user": "opencode",
-  "server_password": { "env": "OPENCODE_SERVER_PASSWORD" },
+  "server_password": {
+    "env": "OPENCODE_SERVER_PASSWORD"
+  },
   "agent_user": "opencode",
   "launcher": "/usr/local/bin/chargehand-sandbox",
-  "forbidden_tools": []
+  "forbidden_tools": [],
+  "superpowers": true
 }

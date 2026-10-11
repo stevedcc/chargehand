@@ -15,19 +15,21 @@ user, in their own clone, and never get write access to anything of yours.
 
 ## Why
 
-Most developers who use coding agents a lot end up with several subscriptions: a Claude plan, and
-one or more flat-rate coding plans (Z.ai's GLM, Kimi, OpenCode Go, Xiaomi's MiMo, ...). Each has
-its own quota windows, its own strengths, and its own tooling. Paying API rates instead is the
-expensive way to get the same work done, and running out of a plan's window mid-task wastes the
-rest of your evening. Chargehand turns that pile of subscriptions into one crew:
+Ever hit your coding plan's limit halfway through a task, and found the next tier costs two or
+five times as much? Ever wondered whether a second, cheaper plan from another provider would do,
+if only switching between them weren't such a hassle? Or whether you should be paying for API
+tokens at all, when flat-rate coding plans (Z.ai's GLM, Kimi, OpenCode Go, Xiaomi's MiMo, ...)
+cost a fraction of that?
+
+Chargehand takes the hassle out of using several plans, so you can grow by adding a small one
+instead of upgrading the one you have:
 
 - **Your subscriptions, combined, without babysitting.** You describe your plans once
   (`models.json`): what each costs, how it's metered, when it ends. Every role has a first choice
   and fallbacks across plans; when one plan hits its quota or rate limit mid-brief, the session
   carries on with the next, and the switch is recorded. A plan past its end date drops out by
-  itself. You don't watch meters; you read the retro. And when you outgrow a plan, you don't
-  have to jump to its next tier (often several times the price): add another small plan from a
-  different provider, list it as a fallback, and the extra capacity is used from the next brief.
+  itself. You don't watch meters; you read the retro. Outgrow a plan? Add another small one as
+  a fallback; it's used from the next brief.
 - **Flat-rate plans instead of API bills.** All the agent work (implementing, reviewing, running
   tests) runs on subscriptions you already pay for, through OpenCode. Claude Code only plans,
   watches and accepts. Nothing is billed per token, and nothing runs into overage. Each brief's
@@ -143,21 +145,63 @@ value.
 
 ## Install
 
-```
-/plugin marketplace add stevedcc/chargehand
-/plugin install chargehand@chargehand
-```
+Once per machine; steps 4 and 5 again for each further project.
 
-Then ask Claude to "configure Chargehand". It writes three files under `~/.config/chargehand/`:
+1. **Prerequisites** (your account): `bubblewrap`, `git`, `jq`, `curl`, `python3`, and rootless
+   Podman if your tests use Testcontainers. Claude Code, ideally with Superpowers for writing
+   briefs:
+   ```
+   /plugin install superpowers@claude-plugins-official
+   ```
+2. **Install Chargehand** in Claude Code:
+   ```
+   /plugin marketplace add stevedcc/chargehand
+   /plugin install chargehand@chargehand
+   ```
+3. **Configure it.** Ask Claude to "configure Chargehand". The `configuring-chargehand` skill asks
+   for what it can't find and writes three files under `~/.config/chargehand/` (`examples/` has
+   one of each):
+   - `config.json`: the OpenCode server URL, how its password is supplied (environment variable,
+     file, command, or a secret manager's wrapper), the agent user's name, and tools agents must
+     never run. `"superpowers": false` opts out of step 4's Superpowers plugin;
+   - `models.json`: your subscriptions, how each is priced, and which models do which job, with
+     fallbacks;
+   - `projects/<name>.json`: the project's paths, branches, build, test and E2E commands, and
+     toolchain folders.
+4. **Create the agent user and sandbox.** Ask Claude to "set up the agent sandbox for <project>";
+   it checks the config and gives you one command to run yourself:
+   ```
+   sudo bash <plugin>/skills/setting-up-agent-sandbox/scripts/setup-agent-user.sh --project <name>
+   ```
+   It creates the agent user, its clone of your repository and the read-only mirror it pulls
+   from, the root-owned launcher `/usr/local/bin/chargehand-sandbox` and project settings
+   (`/etc/chargehand/`), a sudoers entry allowing only the launcher's fixed forms, and the agent's
+   OpenCode config: Chargehand's rules, the two pinned helper subagents, and the
+   [Superpowers](https://github.com/obra/superpowers) plugin (added if missing; if your own
+   `~/.config/opencode/opencode.json` exists, it is the starting point, providers included).
+5. **Give the agent user OpenCode and your subscriptions** (first time only; setup prints these):
+   ```
+   sudo -iu <agent>
+   curl -fsSL https://opencode.ai/v2/install | bash
+   source ~/.bashrc
+   opencode auth login --standalone <provider>     # once per subscription
+   exit
+   ```
+6. **Prove the boundaries:**
+   ```
+   sudo -n -u <agent> /usr/local/bin/chargehand-sandbox --selftest --project <name>
+   ```
+   Every line must say `ok`. A `FAIL` is a hole in the sandbox, not noise.
+7. **Start the OpenCode server** in the sandbox, with its password from wherever you keep secrets:
+   ```
+   OPENCODE_SERVER_PASSWORD="$(secret-tool lookup service opencode)" sudo -n -u <agent> /usr/local/bin/chargehand-sandbox
+   ```
+8. **Run a brief.** Ask Claude to write one (`writing-briefs`) and run it (`running-briefs`); it
+   launches, watches, answers, verifies (`verifying-and-accepting`) and writes the retro
+   (`writing-retros`).
 
-- `config.json`: the OpenCode server, how its password is supplied, the agent user, forbidden
-  tools;
-- `models.json`: subscriptions, pricing, and which model does which job;
-- `projects/<name>.json`: one per project (paths, branches, build, test and E2E commands,
-  toolchain).
-
-`examples/` has one of each. Then ask it to set up the sandbox for a project; it shows you the one
-`sudo` command to run.
+Re-run step 4 (and 6) after changing a project's config, `implementer/` or the launcher: agents
+only ever see the root-owned installed copies.
 
 ## Tests
 

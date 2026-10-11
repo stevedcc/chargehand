@@ -151,7 +151,13 @@ elif [ -f "$OWNER_HOME/.config/opencode/opencode.json" ]; then
 fi
 low="$(jq -r '.roles.low_level[0] // empty' "$HARNESS_CONFIG_DIR/models.json")"
 [ -n "$low" ] || die "models.json has no low_level role ${NOT_CONFIGURED_HINT:-}"
-render_opencode_config "$work/base.json" "$SHARE" "$low" > "$work/opencode.json"
+# The implementer rules use Superpowers skills; add its plugin unless config.json says
+# "superpowers": false (for someone who supplies equivalent skills another way).
+sp="$(jq -r 'if .superpowers == false then "no" else "yes" end' "$HARNESS_CONFIG_DIR/config.json")"
+render_opencode_config "$work/base.json" "$SHARE" "$low" "$sp" > "$work/opencode.json"
+if [ "$sp" = yes ] && ! jq -e '(.plugins // []) | any(test("superpowers"))' "$work/base.json" >/dev/null 2>&1; then
+    echo "  added the Superpowers plugin for '$AGENT' (opencode.json \"plugins\"; set \"superpowers\": false in config.json to opt out)"
+fi
 as_agent sh -c 'umask 077; cat > "$1"' sh "$oc" < "$work/opencode.json"
 jq -c '{instructions, agents: (.agents | map_values(.model))}' "$work/opencode.json"
 

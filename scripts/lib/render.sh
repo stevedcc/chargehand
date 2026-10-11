@@ -18,17 +18,21 @@ render_rules() {
     printf '%s\n' "${text//\{\{FORBIDDEN_TOOLS\}\}/$list}"
 }
 
-# render_opencode_config EXISTING_FILE SHARE_DIR LOW_LEVEL_MODEL: the agent user's opencode.json.
-# Keeps every existing key (plugins, providers ...), adds the rules to "instructions" once, and
-# defines the two harness subagents with their prompts inlined (OpenCode v2's agents take the
-# prompt as text in "system").
+# render_opencode_config EXISTING_FILE SHARE_DIR LOW_LEVEL_MODEL [SUPERPOWERS=yes|no]: the agent
+# user's opencode.json. Keeps every existing key (plugins, providers ...), adds the rules to
+# "instructions" once, defines the two harness subagents with their prompts inlined (OpenCode v2's
+# agents take the prompt as text in "system"), and adds the Superpowers plugin when no plugin
+# entry names superpowers (the implementer rules use its skills); "no" leaves plugins alone.
 render_opencode_config() {
     local existing='{}' agents="$HARNESS_ROOT/implementer/agents"
     [ -f "$1" ] && existing="$(<"$1")"
-    jq --arg share "$2" --arg m "$3" \
+    jq --arg share "$2" --arg m "$3" --arg sp "${4:-yes}" \
        --rawfile tr "$agents/test-runner.md" --rawfile pa "$agents/pattern-applier.md" '
       (.instructions // []) as $i
       | .instructions = ($i - [$share + "/rules.md"] + [$share + "/rules.md"])
+      | if $sp == "yes" and ((.plugins // []) | any(test("superpowers")) | not)
+        then .plugins = ((.plugins // []) + ["superpowers@git+https://github.com/obra/superpowers.git"])
+        else . end
       | .agents = (.agents // {}) + {
           "test-runner": {
             description: "Runs the builds and test suites it is given and reports the results verbatim. Use it for full-suite runs and builds instead of running them in an expensive model context.",
