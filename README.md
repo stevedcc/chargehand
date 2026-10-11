@@ -58,6 +58,19 @@ the agents' reach:
   reports stalls, subagent errors, questions and permission requests, so a session that looks
   busy but is stuck gets noticed.
 
+## Built on Superpowers
+
+Chargehand handles the plumbing: subscriptions, models, sandbox, watching, verification. **How
+the agents work** comes from [Superpowers](https://github.com/obra/superpowers), a skills library
+for coding agents. The implementer rules Chargehand installs (`implementer/rules.md`) send every
+brief through Superpowers' `subagent-driven-development` (each item a task with a fresh
+implementer and its own reviewer) and `requesting-code-review` (the independent task and final
+reviews), and those workflows bring in its `test-driven-development` and
+`verification-before-completion` skills. Projects can require more of them in their own
+`AGENTS.md`. The rules stop agents short of `finishing-a-development-branch`: merging is yours,
+through `accept`. On the orchestrating side, Claude Code with Superpowers' `brainstorming` and
+`writing-plans` is a good way to get to a brief worth handing over.
+
 ## How a brief runs
 
 ```
@@ -123,6 +136,8 @@ value.
 
 - Linux with `bubblewrap`, `sudo` (once, for setup), `git`, `jq`, `curl`, `python3`
 - [Claude Code](https://claude.com/claude-code), and OpenCode 2.x with at least one provider
+- [Superpowers](https://github.com/obra/superpowers) installed for the agent user's OpenCode (the
+  implementer rules name its skills); recommended in Claude Code too
 - A way to supply the OpenCode server password: an environment variable, a file, a command that
   prints it, or a wrapper that substitutes a token (for example a secrets manager's `run`)
 
