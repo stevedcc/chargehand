@@ -10,7 +10,12 @@ test_permission_reply() {
 }
 test_permission_bad_decision() {
     start_api; out="$(bash "$SCRIPT" permission s2 per_1 maybe 2>&1)"
-    assert_eq "exit 2" "$?" "2"; assert_contains "lists choices" "$out" "once, always or reject"
+    assert_eq "exit 2" "$?" "2"; assert_contains "lists choices" "$out" "decision must be once or reject"
+}
+test_always_is_not_a_decision() {
+    start_api; out="$(bash "$SCRIPT" permission s2 per_1 always 2>&1)"
+    assert_eq "exit 2" "$?" "2"; assert_contains "refused" "$out" "decision must be once or reject"
+    assert_eq "nothing sent" "$(requests | wc -l)" "0"
 }
 test_form_reply() {
     start_api; fixture POST /api/session/s3/form/frm_1/reply '{"data": true}'

@@ -4,7 +4,7 @@
 #        answer.sh pending <session>          (pending permissions and forms of that session and its subagents)
 #        answer.sh interrupt <session>        (stop what it is doing; POST .../interrupt?resume=false,
 #                                              the path used by hand in real runs, unverified here)
-#        answer.sh permission <session> <request> once|always|reject [message to the agent]
+#        answer.sh permission <session> <request> once|reject [message to the agent]
 #        answer.sh form <session> <form> '<answer JSON, e.g. {"q0": "Use option B"}>'
 set -euo pipefail
 HARNESS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -31,8 +31,8 @@ case "${1:-}" in
         [ "$#" -eq 2 ] || die "usage: answer.sh interrupt <session>"
         oc_api POST "/api/session/$2/interrupt?resume=false" >/dev/null && echo "interrupted $2" ;;
     permission)
-        [ "$#" -ge 4 ] || die "usage: answer.sh permission <session> <request> once|always|reject [message]"
-        case "$4" in once|always|reject) ;; *) die "decision must be once, always or reject" ;; esac
+        [ "$#" -ge 4 ] || die "usage: answer.sh permission <session> <request> once|reject [message]"
+        case "$4" in once|reject) ;; *) die "decision must be once or reject (each request is read on its own)" ;; esac
         jq -n --arg d "$4" --arg m "${5:-}" '{decision: $d} + (if $m == "" then {} else {message: $m} end)' > "$body"
         oc_api POST "/api/session/$2/permission/$3/reply" "$body" >/dev/null && echo "answered $3: $4" ;;
     form)
