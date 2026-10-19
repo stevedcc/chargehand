@@ -380,3 +380,81 @@ once and that the sandbox then unmounts, or run the server with a separate `--pa
 1, 2 and 3 together (one change to `watch.sh` and `start-brief.sh` plus two fixtures) close
 incident 1 and the "blind watcher" class. 4 and 5 are small and each costs an agent round when they
 hit. 6 needs a lock that 10 also needs. 7 is the missing half of the README's resume promise.
+
+---
+
+## Re-check against 0.2.1 (commits 7f225ed, a54b94b)
+
+Same method as above: the suite (`bash tests/run.sh`: passes, one skip for bubblewrap, and the
+last line now says so) and the scratch experiments re-run against the new scripts.
+
+### Fixed (reproduced before, not reproducible now)
+
+| # | Finding | How it was fixed | Checked by |
+|---|---|---|---|
+| 1 | Root session error invisible; errored idle exits 0 | `watch.sh` checks the root's newest reply since the last prompt, exit 9 `BRIEF SESSION ERROR`; idle exits 0 only on `succeeded`/`success`/`completed`; skill rows 0 and 9 | Experiments A and B: exit 9 in both forms; `test_root_error_without_idle_is_reported`, `test_unknown_idle_outcome_is_not_success` |
+| 2 | Failed or empty message fetch skipped silently | Exit 10 `WATCHER BLIND` after 3 polls (empty root, root gone, fetch failing); `time.updated` from the session list drives the stall check; `?limit=50` on message lists | Experiments D, F, G: exit 10 with the reason; four tests |
+| 3 | `sid` written before the prompt is confirmed | `oc_launch` writes `sid` last, keeps a failed launch as `sid.failed-<n>`, which `brief-cost.sh` counts | `test_failed_launch_message_leaves_no_sid_but_keeps_the_session_findable` |
+| 4 | `&` corrupts substituted values | `shopt -u patsub_replacement` in `harness.sh`; `start-review.sh` uses quoted bash substitution instead of `sed` | Experiment: `dev/start.sh && ...` and `Q&A` intact; `test_ampersand_in_values_survives_substitution`, `test_ampersand_in_a_branch_name` |
+| 5 | Accept misreports untracked collision and index lock | `merge-base --is-ancestor` first; otherwise git's own text in the message; skill step 4 names the case | Experiment: both cases now print git's reason and say it is a fast-forward; two tests |
+| 6 | `integrate.sh` silent on fetch failure; concurrent fetches collide | `|| die` with stderr kept (exit 2, documented); one `flock` per project around `fetch` in `agent-sync.sh` | Experiment: exit 2 with git's message; `test_fetch_failure_is_reported_not_silent`, `test_concurrent_fetches_do_not_collide` |
+| 7 | No resume path | `start-brief.sh --resume` with `resume.md`, `sid.prev<n>`, `launch.txt.prev<n>`; skill section "Resume a dead brief" | `test_resume_after_a_dead_parent`, `test_previous_session_is_kept` |
+| 8 | One provider error blocks a capped provider for six hours | `models_busy`: 20-minute window, an errored newest reply is not busy | `test_pick_does_not_count_a_session_that_died_on_a_provider_error`, `..._only_recently_active_...` |
+| 9 | Foreign permission stops the watcher | Requests filtered by watched trees; foreign ones printed once | Experiment E: printed as information, watcher carries on; two tests |
+| 10 | Verify: no timeout, no lock, no cleanup | `run_limited` with `verify_timeout_min` (default 60, `timeout -k 30`); `flock -n` per project held by the launcher (bwrap no longer exec'd, so `--die-with-parent` now follows the launcher); `stop_e2e` before the run; exit codes 10/3/4 mapped in `agent-sync.sh` and the skill; `timeout: 7200000` named for verify | Verify body run outside bwrap with a hanging suite: killed at the limit, exit 10; `test_a_hung_suite_is_killed_at_the_timeout`, `test_second_verify_of_one_project_is_refused` (both need bubblewrap, skipped here) |
+| 11 | API lock: hard-coded wait, contention read as server down | `HARNESS_API_LOCK_WAIT`, set by the watcher to two thirds of the poll; exit 75 counted separately (`API LOCK STUCK` after 5 polls) | `test_api_lock_contention_is_not_reported_as_server_down`, `test_wrapper_calls_never_overlap` |
+| 12 | Two watchers; idle tag; 15 vs 20 min; exit 2; message order | pid file with liveness check (a second watcher exits 2); skill says drop idle tags and 15 minutes everywhere; exit 2 in the table; `oc_newest_first` sorts by `time.created` | Experiment H: second watcher refused; `test_message_order_does_not_matter` |
+| 13 | Wrong password passes `check-config.sh` | One authenticated `GET /api/model`; 22 is a problem, no answer is a note | `test_wrong_server_password_is_a_problem` (but see new finding N2) |
+| 14 | `column`; silent skips; vacuous argv test | awk formatting; `run.sh` counts skips and `HARNESS_TESTS_STRICT=1`; the fake API can delay so curl is actually observed | Suite output; `test_needs_no_column_tool` |
+| 15 | Untested scripts | `tests/test_integrate.sh`, `tests/test_start_review.sh` added | Suite |
+| 17 | Permission layer agent-editable | Not changed in code; the README and both skills now state that the permission rules are guard rails, the boundary is the user, the sandbox and the diff review. A defensible position, and now an honest one. `agent_text` strips terminal control sequences from agent-authored output. | Reading |
+
+### Still open
+
+- **12 (part), float timestamps.** `tonumber? // 0` handles a non-numeric time (the new test uses
+  the string `"soon"`) but not a fractional millisecond value: with `time.updated` or
+  `time.created` of `...139.5`, `[ -gt ]` fails 48 times per run and no stall is reported
+  (reproduced). Whether the server ever sends fractions is unverified; `floor` after `tonumber`
+  costs nothing.
+- **15 (part).** `~/.bashrc.d/chargehand.sh` is still not sourced by Ubuntu's default `.bashrc`
+  (minor, affects only the owner's manual steps as the agent user).
+- **16, unverified.** Sessions are still created without a project directory.
+- **Unverified, new in 0.2.1:** `?limit=50` on message lists. If the server's `limit` returns the
+  oldest 50 rather than the newest, a root with more than 50 messages never shows its idle or
+  its error to the watcher (the sort only orders what came back), and a long brief ends in
+  TIMEOUT after TIMEOUT. The fake API ignores query strings, so the test proves only that the
+  parameter is sent. Check against the real server once; if `limit` is oldest-first or ignored,
+  drop it or page from the end.
+
+### New in 0.2.1
+
+- **N1. Important: a verify that times out before printing a summary line fails with no
+  explanation.** `sandbox.sh` VERIFY body: `run_limited` prints `TIMED OUT after N min: <cmd>` to
+  stdout, which then goes through `grep -E -A1 "$TEST_FILTER"` like the test output. It survives
+  only when the line before it matched the filter (reproduced both ways: `echo Passed!; sleep`
+  shows it, `echo starting containers; sleep` shows nothing but exit 10). The owner then reads
+  "verify FAILED ... (see above)" with nothing above and cannot tell a hang from a failed suite.
+  Fix: print the timeout line after the pipeline, from `PIPESTATUS[0] -eq 124`, outside the
+  filter (the build step already reports it unfiltered).
+- **N2. Important: `check-config.sh` exits 2 with no output when the password cannot be read.**
+  The new authenticated call runs `oc_api` in the script's own shell (`check-config.sh:46`);
+  `oc_api`'s `die` for an empty `env` variable, a missing or wrongly-moded file, or a failing
+  command exits the script with the message sent to `/dev/null` (reproduced: `{"env":
+  "UNSET_VAR"}` gives exit 2 and an empty output). The `src=2` branch that was written for this
+  case never runs. The skill's step 1 then shows the orchestrator nothing to act on. Fix: run it in
+  a subshell, `( oc_api GET /api/model ) >/dev/null 2>&1`, as `--families` already does.
+- **N3. Minor (unverified): a child without `time.updated` is read once and never again.**
+  `watch.sh:102-105` skips a child's message fetch while its `time.updated` is unchanged; a child
+  the server lists without that field compares `0` to `0` from the second poll on, so an error it
+  raises later is never reported (reproduced with the fake API: one fetch, later error unseen).
+  `models_busy` already assumed the field exists, so this is probably moot; a missing field should
+  force a fetch rather than skip one.
+- **N4. Minor: `install -d -g "$OWNER"`** in `setup-agent-user.sh:113` assumes a group named after
+  the owner (user private groups). On a system without them (`users` as the primary group) setup
+  aborts at step 7 under `set -e`. `-g "$(id -gn "$OWNER")"` is what was meant.
+
+### Verdict
+
+Of the 17 findings, 15 are fixed in code and tests, one (17) is addressed by a changed claim rather
+than a changed mount, and one (16) stays unverified. The fixes add two new defects worth a
+follow-up (N1, N2) and two small ones (N3, N4); none of them reopens an incident class.
