@@ -417,3 +417,71 @@ user (for example `~/.local/state/chargehand/<project>/records/`, or a repo the 
 - **`sandbox.sh:131`** runs one `git rev-parse` on the agent-controlled clone outside bwrap, as the
   agent user. `rev-parse` does not run hooks, aliases or `fsmonitor`, so this is believed safe; it is
   noted because it is the one git invocation on agent content before the sandbox exists.
+
+---
+
+## Re-check against 0.3.0 (commit 5383f44, same day)
+
+0.3.0 answers each finding in its own commit. `bash tests/run.sh` passes on it (same bubblewrap
+skip). I re-ran every scratch experiment above against the new scripts and read every changed
+prompt file. Status per finding, then what is still open.
+
+| # | Status | Evidence |
+|---|---|---|
+| 1 | Fixed | `test-runner` removed from the rules, the agent config and `pattern-applier.md`; the foreground rule now lives in `rules.md` ("Reviews, claims and reports"); `rules.md:6` adds "Where this file and your launch message disagree, stop and report; neither overrides the other." |
+| 2 | Fixed | `models_check` compares every live reviewer model with every live implementer model. Checked: the zai/moonshot allocation now reports "shares a family with implementer fallback `moonshot/kimi-k2`". README and the launch message say what happens on a fallback. |
+| 3 | Fixed | `rules.md` and `resume.md` name `.worktrees/<tag>/.superpowers/state.md`; setup appends `.superpowers/` and `wip-*.md` to the clone's `.git/info/exclude` (`CLONE_EXCLUDE_SH`). |
+| 4 | Fixed, one residual | One rule in `rules.md:25-26` and the Claude rules; amend, soft/mixed reset, `branch -f`, `update-ref`, `checkout -B`, `switch -C`, `clean`, `stash drop/clear` denied. Residual below (R3). |
+| 5 | Fixed | The four launch-only rules moved into `rules.md`; "record why not" is now "stop and report with evidence"; `{{RULES_FILE}}` tells the parent to hand the rules path to every subagent. `launch.md` carries only per-brief facts. |
+| 6 | Fixed | `"pay_per_use": true` in `models.json`; `models_render` marks such models "only after the orchestrator says so"; `models_pick` skips them without `--allow-paid` and dies when nothing flat-rate is left (checked). Skills and README updated. |
+| 7 | Fixed, one residual | The brief is the first commit of `brief/<tag>`; `start-brief.sh` refuses an uncommitted brief (checked), pushes the branch, and the launch message builds the worktree from `origin/brief/<tag>`. `writing-briefs` and `verifying-and-accepting` now agree. Residual below (R4). |
+| 8 | Fixed | The trust decision is stated in README, `running-briefs` and the top of `claude-subagent-rules.md`. The suites still run as the owner; that is now a documented choice, not an unstated one. |
+| 9 | Fixed, one residual | `review.md` template with the fetch and worktree steps; `start-claude-brief.sh` (checked: creates the worktree, excludes `.superpowers/` and `.worktrees/`, prints the prompt and the review base); `answer.sh pending` and `answer.sh interrupt`, the latter marked unverified in its own usage text; `integrate.sh` runs after each watcher exit instead of on a timer nobody keeps. Residual below (R1). |
+| 10 | Fixed | The "never `sleep` or poll in a foreground call" sentence is in `running-briefs` (Watch) and `verifying-and-accepting` (step 3). |
+| 11 | Fixed | `rules.md` "Finishing a task" step 1 now has the grep-before-rerun rule and "'flaky' is not a cause". |
+| 12 | Fixed, one residual | `strip_provider_secrets` drops a top-level `apiKey` and credential-looking keys under `provider`, listing the paths (checked). Residual below (R2). |
+| 13 | Fixed | `git diff HEAD --binary` and `git checkout HEAD -- <files>`; the patch goes outside the repo. |
+| 14 | Fixed | `agent-sync.sh diff <ref>`: `--no-pager --no-color --no-ext-diff`, piped through `agent_text`; step 2 cites it. |
+| 15 | Fixed | `answer.sh permission` accepts `once|reject` only (checked). |
+| 16 | Fixed | Example ids `alpha-pro`, `beta-pro`, `gamma-pro`, `delta-z`; offline `models_check` on the example is silent (checked). The configuring skill says the check degrades to the id prefix offline. |
+| 17 | Fixed | `brief.txt` written at launch; `--resume` with another `--brief` dies (checked). Briefs launched before 0.3.0 have no `brief.txt` and are not checked, as the script says. |
+| 18 | Fixed | Only `git remote add/set-url/remove/rm/rename/prune/set-head/set-branches` are denied. |
+| 19 | Fixed | `rules.md:9-12` describes verification as the Claude rules do. |
+| 20 | Fixed | Anecdotes trimmed to their reason; `records-dir.sh` and `records_dir` in `config.json`; the .NET-specific runner prompt went with `test-runner`. |
+| 21 | Fixed | `oc_sessions` warns once when the list is exactly the limit; glued `-v/` and `-v.` mount patterns added. |
+
+### Still open after 0.3.0
+
+**R1. Important: the orchestrator cannot know the reviewer's branch, so verify and accept on a
+Claude-implemented brief are back to guesswork.** `review.md:4` has the reviewer create
+`R={TAG}-review-$(date +%s)` and fetch the branch into it; `running-briefs` (Branches implemented
+outside the sandbox) then says `agent-sync.sh fetch`/`verify` "work as usual". As usual means
+`verify agent/brief/<tag>` and `accept brief/<tag>`, but the agent clone has no `brief/<tag>` for
+this path: it has `<tag>-review-1760900000`, a name only the reviewer knows. The orchestrator must
+read it off the `fetch` output or `git branch -r`, and `verifying-and-accepting` step 2 still says
+`agent/brief/<tag>`. Fix: make the name deterministic (`brief/{TAG}` itself, or
+`{TAG}-review-{ARM}` with the arm `start-review.sh` already knows) and have `start-review.sh` print
+the ref to verify and accept; say in `running-briefs` that for this path verify and accept take that
+ref.
+
+**R2. Minor: `strip_provider_secrets` strips only under `provider` and the top-level `apiKey`.**
+Checked: an `mcp.<name>.headers.Authorization: "Bearer ..."` entry is copied to the agent intact.
+OpenCode configs carry MCP server headers and plugin options too. Fix: match credential-looking keys
+anywhere in the document, not only under `provider`, or print every string path that is kept so the
+owner sees what travelled.
+
+**R3. Minor: a bare `git reset <commit>` (mixed by default), `git reset --keep` and `git reset
+--merge` are still not denied**; they move the branch like `--soft` does. Fix: deny `git reset*` and
+allow back the file forms the agents need (`git reset -- *`, `git reset HEAD -- *`, `git reset -p*`),
+if OpenCode's matcher orders allow after deny the way the `docker run --rm` block assumes (unverified).
+
+**R4. Minor: `start-brief.sh` accepts a brief that is already on the target** ("A brief already on
+the target is fine") and creates `brief/<tag>` at the target tip. The launch message then says "the
+brief is the first commit of that branch", which is false in that case, and the commit on the target
+is the one `verifying-and-accepting` forbids while another brief runs. Harmless for this brief,
+misleading for the agent; a warning on stderr ("brief found on <target>, not on brief/<tag>: other
+running briefs will need a merge round") would be enough.
+
+**R5. Trivial:** `answer.sh pending` still calls `/api/session?limit=1000` directly instead of
+`oc_sessions`, so it gets no truncation warning; after accept the owner's local `brief/<tag>`
+branches accumulate (nothing deletes them; a line in `writing-retros` or `accept` could).
