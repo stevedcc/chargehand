@@ -30,6 +30,17 @@ test_accept_fast_forwards_to_a_branch_that_carries_the_brief_commit() {
     sync accept brief/x >/dev/null 2>&1; assert_eq "accepted" "$?" "0"
     assert_eq "target carries the brief commit and the work" "$(g -C "$W" log --format=%s main | head -3 | paste -sd,)" "agent work,brief x,base"
 }
+test_diff_is_the_three_dot_diff_without_control_characters() {
+    repos; g -C "$C" checkout -q -b brief/x; printf 'safe\n\033[2J\033]0;pwned\007line\n' > "$C/f.txt"; g -C "$C" add f.txt; g -C "$C" commit -q -m "agent adds f"
+    g -C "$W" commit -q --allow-empty -m "owner moved on"
+    sync fetch >/dev/null 2>&1
+    out="$(sync diff agent/brief/x)"; assert_eq "exit 0" "$?" "0"
+    assert_contains "shows the agent's change" "$out" "+safe"
+    assert_not_contains "no escape byte" "$out" $'\e'
+    assert_not_contains "no bell byte" "$out" $'\a'
+    assert_not_contains "three dots: the owner's own commit is not in it" "$out" "owner moved on"
+    out="$(sync diff 2>&1)"; assert_eq "needs a ref" "$?" "2"
+}
 test_non_fast_forward_refused() {
     repos; g -C "$C" checkout -q -b brief/x; g -C "$C" commit -q --allow-empty -m "agent work"
     g -C "$W" commit -q --allow-empty -m "owner work"

@@ -14,7 +14,8 @@ three mistakes this skill prevents.
 ## Steps
 1. `bash scripts/agent-sync.sh --project <p> fetch` (upload-pack only; safe).
 2. **Read the diff against the brief, not against the report. This is the security boundary**:
-   `git diff <target>...agent/brief/<tag>`. Every item done as specified; every test the brief
+   `bash scripts/agent-sync.sh --project <p> diff agent/brief/<tag>` (the three-dot diff against
+   the target, with control characters stripped). Every item done as specified; every test the brief
    requires exists and asserts the outcome (not presence); no assertion weakened; nothing outside
    the brief's scope; nothing in the build, test project, scripts or test helpers that decides
    its own result (a test runner that prints "Passed" or exits 0 regardless is a forged verify).

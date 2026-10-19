@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # The owner's side of the fork model. Run as yourself.
-# Usage: agent-sync.sh --project <name> push | fetch | verify [ref] | accept [branch]
+# Usage: agent-sync.sh --project <name> push | fetch | diff <ref> | verify [ref] | accept [branch]
 #   push           push the target branch to the read-only mirror the agents pull from
 #   fetch          fetch the agent clone's branches into agent/* and show what's new
+#   diff <ref>     what ref (e.g. agent/brief/<tag>) adds to the target: git diff <target>...<ref>,
+#                  with terminal control characters stripped (the diff is agent-authored text)
 #   verify [ref]   clean build and all suites for ref (default agent/<target>), as the agent user,
 #                  inside the sandbox (never as you). Exit 0 passed; 10 the build or a suite failed or
 #                  timed out; 3 another verify of the project is running; 4 the sandbox could not
@@ -35,6 +37,9 @@ fetch)
     ) 9>"$HARNESS_STATE_DIR/$project/repo.lock"
     echo; echo "New on agent/$target:"
     { git log --oneline "$target..agent/$target" 2>/dev/null || true; } | agent_text ;;
+diff)
+    [ -n "${1:-}" ] || die "usage: agent-sync.sh --project $project diff <ref>"
+    git --no-pager diff --no-color --no-ext-diff "$target...$1" | agent_text ;;
 verify)
     ref="${1:-agent/$target}"
     sha="$(git rev-parse --verify "$ref^{commit}")"
