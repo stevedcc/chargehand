@@ -66,7 +66,7 @@ depend on the order the server lists them in.
 | 6 subagent error | read that child's last messages first, then prompt the brief's session: "Subagent `<s>` ended with `<error>` at `<time>`; check its work in git and continue." Quota errors: the fallback model in the launch message applies. |
 | 7 stalled | inspect the children. A child whose last tool calls completed with no model reply since is a hung model request: `POST /api/session/<child>/interrupt?resume=false`; the parent sees the subagent cancelled and retries (07c, 2026-10-10). A tool call shown as `running` for 15 minutes is usually an unanswered permission request: check `GET /api/session/<s>/permission` first and answer it (only `watch.sh` reports permissions; a home-made watcher missed two in 09a, 2026-10-12). Only if none is pending and the tool's process is gone: `interrupt` the session, wait for `idle`, then prompt it; a prompt sent while it is busy is queued and dropped by the interrupt. Otherwise as 6. |
 | 8 server down | tell the owner; nothing else works until it is back. If the report says `API LOCK STUCK`, the server is fine: another script (a second watcher, a `brief-cost.sh`, a hung wrapper) holds `<state dir>/api.lock`; find and end it, then restart. |
-| 9 brief session error | The brief's own session failed (provider error such as 402, quota or authentication) or went idle with an outcome that is not a success. **Never verify it.** Show the owner the provider and the message from the report. On 402 or a quota error tell the owner at once: the session's model is pinned and the provider refuses it, so prompting the same session fails again; resume on the fallback model from the launch message (see Resume a dead brief); ask first only if that fallback is a pay-per-use model. Other errors: read the last messages, then prompt the session to continue (if it errors again, resume). |
+| 9 brief session error | The brief's own session failed (provider error such as 402, quota or authentication) or went idle with an outcome that is not a success. **Never verify it.** Show the owner the provider and the message from the report. On 402 or a quota error tell the owner at once: the session's model is pinned and the provider refuses it, so prompting the same session fails again; resume on the fallback model from the launch message (see Resume a dead brief); a pay-per-use fallback needs the owner's yes and `--allow-paid`. Other errors: read the last messages, then prompt the session to continue (if it errors again, resume). |
 | 10 watcher blind | The watcher could not read the brief's messages for 3 polls (the report says why: session not on the server, empty message list, list fetch failing). The brief may be fine; restarting will not help until the cause is fixed. Check the server and `sid` (`start-brief.sh` writes `sid` only after the launch message is accepted), then restart. |
 
 Send prompts with the API (`POST /api/session/<sid>/prompt` `{text}`, via `oc_api` in
@@ -82,7 +82,7 @@ before either is accepted.
 ## Decide or ask
 Decide yourself: anything the brief, the project's AGENTS.md or the harness rules answer.
 Ask the owner: outward or irreversible steps (pushes to shared remotes, merges to main,
-deleting data), paid pay-per-use models, design changes the brief didn't settle.
+deleting data), pay-per-use models (`--allow-paid` only with their yes), design changes the brief didn't settle.
 
 ## Updating a brief's branch
 When the target branch moved: the agent runs `git fetch origin` and

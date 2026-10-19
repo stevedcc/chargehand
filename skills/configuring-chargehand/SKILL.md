@@ -14,7 +14,7 @@ failure this skill exists to prevent.
 | File | Holds |
 |---|---|
 | `config.json` | `server_url`, `server_user`, `server_password` (how to get it), `agent_user`, `launcher`, `forbidden_tools`, `superpowers` (default true: setup adds the Superpowers plugin for the agent) |
-| `models.json` | `subscriptions` (provider → `pricing`, optional `ends`), `roles` (implementer, task_review, final_review, low_level → ordered model lists) |
+| `models.json` | `subscriptions` (provider → `pricing`, optional `ends`, `max_busy_sessions`, `"pay_per_use": true` for a provider billed per token), `roles` (implementer, task_review, final_review, low_level → ordered model lists) |
 | `projects/<name>.json` | paths, branch, E2E and verify commands, toolchain, self-test extras, optional `roles` override |
 
 Every key is shown in `examples/` at the plugin root. Roles never go in `config.json`.
@@ -27,7 +27,8 @@ Every key is shown in `examples/` at the plugin root. Roles never go in `config.
    value itself.
 3. **Subscriptions and models from the server, not memory:**
    `bash scripts/check-config.sh --available-models` lists `provider/model<TAB>family`. Ask which
-   providers are flat-rate subscriptions (a pay-per-use provider never is), then fill each role
+   providers are flat-rate subscriptions and set `"pay_per_use": true` on every other one: the
+   scripts never pick such a model unless the owner says so (`--allow-paid`). Then fill each role
    by offering that list's models. Reviewers must come from a different family than the
    implementer. `pricing` is optional at first; costing shows "no rate" until a retro measures it.
 4. **Project values from the repo:** propose `repo`, `target_branch`

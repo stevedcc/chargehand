@@ -4,7 +4,8 @@
 # and record the brief's state (sid, launch.txt) under ~/.local/state/chargehand.
 # Usage: start-brief.sh --project <name> --tag <tag> --brief <path in repo> [--title <text>]
 #        [--role role=provider/model]... [--first-instance K] [--extra <text>] [--no-push] [--dry-run]
-#        [--resume]
+#        [--resume] [--allow-paid]
+# --allow-paid: the owner said a pay-per-use model ("pay_per_use": true in models.json) may be used.
 # --resume: the brief's session died (provider error, quota): start a new session that carries on
 # from its worktree and state.md. Pass --role implementer=<fallback> for another model. The old
 # sid becomes sid.prev<n> (brief-cost.sh counts it); the old launch.txt becomes launch.txt.prev<n>.
@@ -14,7 +15,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_ROOT="$(cd "$here/../../.." && pwd)"
 for lib in harness api models render; do . "$HARNESS_ROOT/scripts/lib/$lib.sh"; done
 
-project= tag= brief= title= extra= first= push=1 dry=0 resume=0; roles=()
+project= tag= brief= title= extra= first= push=1 dry=0 resume=0 paid=; roles=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --project) project="$2"; shift 2 ;;
@@ -27,6 +28,7 @@ while [ $# -gt 0 ]; do
         --no-push) push=0; shift ;;
         --dry-run) dry=1; shift ;;
         --resume) resume=1; shift ;;
+        --allow-paid) paid=--allow-paid; shift ;;
         -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown argument \"$1\"" ;;
     esac
@@ -63,7 +65,7 @@ template=launch.md; [ "$resume" -eq 0 ] || template=resume.md
 msg="$(<"$here/../$template")"
 msg="${msg//\{PREVIOUS\}/$( [ "$resume" -eq 1 ] && cat "$dir/sid" || true)}"
 msg="${msg//\{TARGET\}/$target}"; msg="${msg//\{BRIEF\}/$brief}"; msg="${msg//\{TAG\}/$tag}"
-msg="${msg//\{E2E\}/$e2e_text}"; msg="${msg//\{MODELS\}/$(models_render "$eff")}"; msg="${msg//\{EXTRA\}/$extra}"
+msg="${msg//\{E2E\}/$e2e_text}"; msg="${msg//\{MODELS\}/$(models_render "$eff" $paid)}"; msg="${msg//\{EXTRA\}/$extra}"
 
 # The project's toolchain folders and OpenCode's own cache, as the agent user sees them: OpenCode may use them
 # without asking (the sandbox mounts the same list).
@@ -73,7 +75,7 @@ mapfile -t tool_dirs < <(jq -r '(.toolchain.ro // []) + (.toolchain.rw // []) | 
     | sed "s|^~/|$agent_home/|"; echo "$agent_home/.cache/opencode")
 
 # A subscription at its "max_busy_sessions" (e.g. Z.ai's 5-hour window) passes to the next model.
-if [ "$dry" -eq 1 ]; then impl="$(jq -r '.implementer[0]' <<<"$eff")"; else impl="$(models_pick "$eff" implementer)"; fi
+if [ "$dry" -eq 1 ]; then impl="$(jq -r '.implementer[0]' <<<"$eff")"; else impl="$(models_pick "$eff" implementer $paid)"; fi
 [ "$dry" -eq 1 ] || echo "chargehand: implementer model: $impl" >&2
 req="$(jq -n --arg t "${title:-Brief $tag}" --arg p "${impl%%/*}" --arg m "${impl#*/}" \
         --argjson perms "$(render_permissions "$here/../permissions.json" "${tool_dirs[@]}")" \

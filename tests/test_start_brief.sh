@@ -112,4 +112,18 @@ test_chosen_model_is_reported_on_stderr_and_stdout_stays_the_sid() {
     assert_eq "stdout is the sid" "$out" "ses_new"
     assert_contains "model on stderr" "$(cat "$TEST_TMP/err")" "implementer model: go/mimo-v2.6-pro"
 }
+PAID='{"subscriptions": {"go": {}, "api": {"pay_per_use": true}},
+       "roles": {"implementer": ["api/big-1"], "task_review": ["go/deepseek-v4-pro"], "final_review": ["go/deepseek-v4-pro"], "low_level": ["go/mimo-v2.6-flash"]}}'
+test_a_pay_per_use_implementer_needs_allow_paid() {
+    start_api; setup_project; write_models "$PAID"
+    fixture POST /api/session '{"data": {"id": "ses_new"}}'
+    fixture POST /api/session/ses_new/prompt '{"data": {"id": "msg_1"}}'
+    out="$(bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md --no-push 2>&1)"
+    assert_eq "refused" "$?" "2"; assert_contains "says how" "$out" "needs --allow-paid"
+    assert_eq "no session created" "$(requests | jq -r 'select(.path == "/api/session") | .method' | wc -l)" "0"
+    out="$(bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md --no-push --allow-paid 2>/dev/null)"
+    assert_eq "launched with the owner's yes" "$out" "ses_new"
+    assert_contains "model pinned" "$(jq -c . "$HARNESS_STATE_DIR/demo/briefs/07a/session-request.json")" '"model":{"providerID":"api","id":"big-1"}'
+    assert_contains "message says it was allowed" "$(cat "$HARNESS_STATE_DIR/demo/briefs/07a/launch.txt")" "allowed by the owner for this brief"
+}
 run_tests

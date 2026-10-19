@@ -40,4 +40,16 @@ test_previous_session_is_kept() {
     assert_eq "rotated" "$(cat "$d/sid.prev1")" "ses_r1"
     assert_eq "new sid" "$(cat "$d/sid")" "ses_r2"
 }
+test_review_never_picks_a_pay_per_use_model_unasked() {
+    start_api; setup_review feat/x
+    write_models '{"subscriptions": {"go": {}, "api": {"pay_per_use": true}}, "roles": {"implementer": ["go/mimo-v2.6-pro"], "task_review": ["api/big-2"], "final_review": ["api/big-2", "go/deepseek-v4-pro"], "low_level": ["go/mimo-v2.6-flash"]}}'
+    fixture POST /api/session '{"data": {"id": "ses_r"}}'
+    fixture POST /api/session/ses_r/prompt '{"data": {"id": "m1"}}'
+    out="$(bash "$SCRIPT" --project demo --tag 07a --branch feat/x --base abc123 --role task_review --prompt "$TEST_TMP/prompt.md" 2>&1)"
+    assert_eq "refused" "$?" "2"; assert_contains "says how" "$out" "needs --allow-paid"
+    out="$(bash "$SCRIPT" --project demo --tag 07a --branch feat/x --base abc123 --role final_review --prompt "$TEST_TMP/prompt.md" 2>/dev/null)"
+    assert_eq "flat-rate fallback" "$out" "go/deepseek-v4-pro ses_r"
+    out="$(bash "$SCRIPT" --project demo --tag 07b --branch feat/x --base abc123 --role task_review --allow-paid --prompt "$TEST_TMP/prompt.md" 2>/dev/null)"
+    assert_eq "allowed" "$out" "api/big-2 ses_r"
+}
 run_tests

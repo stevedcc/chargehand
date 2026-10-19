@@ -159,7 +159,9 @@ anything its user can, inside the sandbox.
 review, final review and low-level work, each with fallbacks used only on quota, rate-limit or
 authentication errors. The launch message pins them, so a session can't drift to another model.
 Each subscription declares how it's priced (metered against a plan, per token, or a blended
-rate), and `brief-cost.sh` turns a brief's session tree into cost per model.
+rate), and `brief-cost.sh` turns a brief's session tree into cost per model. A subscription marked
+`"pay_per_use": true` is never picked unless you pass `--allow-paid`, and an agent never falls back
+to one on its own.
 
 In the author's use, a typical brief (a few hundred lines of code and tests, three to five task
 reviews, a final review, the end-to-end suite run twice) costs one to two dollars of subscription

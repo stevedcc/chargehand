@@ -100,7 +100,7 @@ PICK_MODELS='{
 pick_session() { echo "{\"id\": \"$1\", \"model\": {\"providerID\": \"$2\", \"id\": \"m\"}, \"time\": {\"created\": $3, \"updated\": $3}}"; }
 busy_msgs='{"data": [{"type": "assistant"}, {"type": "user"}]}'
 idle_msgs='{"data": [{"type": "idle", "outcome": "succeeded"}, {"type": "assistant"}, {"type": "user"}]}'
-pick() { . "$HARNESS_ROOT/scripts/lib/api.sh"; models_pick "$(models_effective p)" "$1"; }
+pick() { . "$HARNESS_ROOT/scripts/lib/api.sh"; models_pick "$(models_effective p)" "$1" "${2:-}"; }
 
 test_pick_skips_a_provider_at_its_busy_limit() {
     start_api; write_models "$PICK_MODELS"; write_project p '{}'
@@ -151,5 +151,32 @@ test_pick_counts_only_recently_active_sessions_as_busy() {
     fixture GET /api/session "{\"data\": [$(pick_session s1 z "$stale")]}"
     fixture GET /api/session/s1/message "$busy_msgs"
     assert_eq "a session silent for 30 min is not busy" "$(pick task_review 2>/dev/null)" "z/glm-5.3"
+}
+# "pay_per_use": true on a subscription: never chosen automatically, only with --allow-paid.
+PAID_MODELS='{
+  "subscriptions": {"z": {}, "api": {"pay_per_use": true}},
+  "roles": {"implementer": ["api/big-1", "z/glm-5.3"], "task_review": ["z/other-1", "api/big-2"],
+            "final_review": ["api/big-2"], "low_level": ["z/glm-5.3"]}
+}'
+test_pick_never_chooses_a_pay_per_use_model_unasked() {
+    start_api; write_models "$PAID_MODELS"; write_project p '{}'
+    assert_eq "flat-rate fallback instead" "$(pick implementer 2>/dev/null)" "z/glm-5.3"
+    out="$(pick final_review 2>&1)"; rc=$?
+    assert_eq "only a paid model left: refused" "$rc" "2"
+    assert_contains "says how" "$out" "pay-per-use model needs --allow-paid"
+}
+test_pick_allow_paid_is_the_owners_explicit_yes() {
+    start_api; write_models "$PAID_MODELS"; write_project p '{}'
+    assert_eq "first model again" "$(pick implementer --allow-paid 2>/dev/null)" "api/big-1"
+    assert_eq "paid-only role works" "$(pick final_review --allow-paid 2>/dev/null)" "api/big-2"
+}
+test_launch_message_marks_pay_per_use_models() {
+    write_models "$PAID_MODELS"; write_project p '{}'
+    out="$(HARNESS_TODAY=2026-10-10 models_render "$(models_effective p)")"
+    assert_contains "marked" "$out" '`api/big-1` (pay-per-use: only after the orchestrator says so in a prompt)'
+    assert_contains "stop rule" "$out" "On a quota error with no flat-rate fallback left, stop and report."
+    assert_not_contains "flat-rate model unmarked" "$out" '`z/glm-5.3` (pay-per-use'
+    out="$(HARNESS_TODAY=2026-10-10 models_render "$(models_effective p)" --allow-paid)"
+    assert_contains "allowed for this brief" "$out" '`api/big-1` (pay-per-use, allowed by the owner for this brief)'
 }
 run_tests

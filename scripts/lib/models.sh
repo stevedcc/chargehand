@@ -48,19 +48,25 @@ models_check() {
     ' "$HARNESS_CONFIG_DIR/models.json"
 }
 
-# models_render EFFECTIVE: the model block of a launch message.
+# models_render EFFECTIVE [--allow-paid]: the model block of a launch message. A model of a
+# subscription with "pay_per_use": true is marked: not to be used until the orchestrator says so
+# (or, with --allow-paid, allowed by the owner for this brief).
 models_render() {
-    local eff="$1" today="${HARNESS_TODAY:-$(date +%F)}"
-    jq -r --argjson e "$eff" --arg today "$today" --argjson fams '{}' "$_MODELS_JQ_DEFS"'
+    local eff="$1" allow=false today="${HARNESS_TODAY:-$(date +%F)}"
+    [ "${2:-}" != --allow-paid ] || allow=true
+    jq -r --argjson e "$eff" --arg today "$today" --argjson fams '{}' --argjson allow "$allow" "$_MODELS_JQ_DEFS"'
       .subscriptions as $s
-      | def line($label; $r): ($e[$r] | live($s; $today)) as $l
-          | "- \($label): `\($l[0])`"
-            + (if ($l | length) > 1 then "; fallback: " + ([$l[1:][] | "`\(.)`"] | join(", ")) else "" end);
+      | def mark: "`\(.)`" + (if $s[prov].pay_per_use == true
+            then (if $allow then " (pay-per-use, allowed by the owner for this brief)"
+                  else " (pay-per-use: only after the orchestrator says so in a prompt)" end) else "" end);
+        def line($label; $r): ($e[$r] | live($s; $today)) as $l
+          | "- \($label): \($l[0] | mark)"
+            + (if ($l | length) > 1 then "; fallback: " + ([$l[1:][] | mark] | join(", ")) else "" end);
         "Models for this brief. Use exactly these; switch to a fallback only on a quota, rate-limit or authentication error, and record the switch and the error in your completion report:",
         line("this session and its implementer subagents"; "implementer"),
         line("per-task reviews and re-reviews"; "task_review"),
         line("final whole-branch review"; "final_review"),
-        "- If you switch to a fallback, the reviewer must still be from a different family than the model that wrote the code; if none is left, stop and report.",
+        "- If you switch to a fallback, the reviewer must still be from a different family than the model that wrote the code; if none is left, stop and report. On a quota error with no flat-rate fallback left, stop and report.",
         "- pattern-applier: pinned in its agent definition; do not override it.",
         "Allowed providers: " + ([$s | to_entries[] | select((.value.ends // "9999-12-31") >= $today) | "`\(.key)/`"] | join(", ")) + ". Never any other provider."
     ' "$HARNESS_CONFIG_DIR/models.json"
@@ -83,11 +89,14 @@ models_busy() {
     echo "$n"
 }
 
-# models_pick EFFECTIVE ROLE: the role's first live model whose provider is under its
+# models_pick EFFECTIVE ROLE [--allow-paid]: the role's first live model whose provider is under its
 # "max_busy_sessions" (a subscription with a short usage window, e.g. Z.ai's 5 hours, can't take
-# two heavy sessions at once). All capped: the first model anyway, with a warning. Needs api.sh.
+# two heavy sessions at once). All capped: the first model anyway, with a warning. A pay-per-use
+# model ("pay_per_use": true) is never picked unless --allow-paid (the owner's explicit yes).
+# Needs api.sh.
 models_pick() {
-    local eff="$1" role="$2" today="${HARNESS_TODAY:-$(date +%F)}" m p max busy first=
+    local eff="$1" role="$2" allow=false today="${HARNESS_TODAY:-$(date +%F)}" m p max busy first=
+    [ "${3:-}" != --allow-paid ] || allow=true
     while read -r m; do
         [ -n "$m" ] || continue
         [ -n "$first" ] || first="$m"
@@ -101,9 +110,10 @@ models_pick() {
             fi
         fi
         echo "$m"; return 0
-    done < <(jq -r --argjson e "$eff" --arg r "$role" --arg today "$today" "$_MODELS_JQ_DEFS"'
-        .subscriptions as $s | ($e[$r] // []) | live($s; $today)[]' "$HARNESS_CONFIG_DIR/models.json")
-    [ -n "$first" ] || die "no live model for $role"
+    done < <(jq -r --argjson e "$eff" --arg r "$role" --arg today "$today" --argjson allow "$allow" "$_MODELS_JQ_DEFS"'
+        .subscriptions as $s | ($e[$r] // []) | live($s; $today)[]
+        | select($allow or ($s[. | prov].pay_per_use != true))' "$HARNESS_CONFIG_DIR/models.json")
+    [ -n "$first" ] || die "no live flat-rate model for $role (a pay-per-use model needs --allow-paid, with the owner's yes)"
     echo "chargehand: every model for $role is at its busy limit; using $first anyway" >&2
     echo "$first"
 }
