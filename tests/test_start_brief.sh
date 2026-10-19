@@ -6,7 +6,7 @@ MODELS='{"subscriptions": {"go": {}, "km": {}},
 setup_project() {
     mkdir -p "$HOME/repo/docs/briefs"; echo "# Brief" > "$HOME/repo/docs/briefs/07a.md"
     write_project demo "{\"owner_worktree\": \"~/repo\", \"target_branch\": \"main\",
-      \"e2e_command\": \"dev/run-e2e.sh --instances {N} --first-instance {K}\",
+      \"e2e_command\": \"dev/start.sh && dev/run-e2e.sh --instances {N} --first-instance {K}\",
       \"e2e_agent_instances\": [1, 20], \"e2e_instances_per_run\": 3, \"port_check\": \"ss -ltn on ports 5000-5199\"}"
     write_models "$MODELS"
     jq '. + {forbidden_tools: ["kubectl"]}' "$HARNESS_CONFIG_DIR/config.json" > "$TEST_TMP/c" && mv "$TEST_TMP/c" "$HARNESS_CONFIG_DIR/config.json"
@@ -35,7 +35,7 @@ test_launch_creates_session_and_state() {
 test_fixed_first_instance() {
     start_api; setup_project
     out="$(bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md --first-instance 4 --dry-run)"
-    assert_contains "command filled in" "$out" "dev/run-e2e.sh --instances 3 --first-instance 4"
+    assert_contains "command filled in" "$out" "dev/start.sh && dev/run-e2e.sh --instances 3 --first-instance 4"
 }
 test_refuses_bad_models_and_relaunch_and_missing_brief() {
     start_api; setup_project
@@ -58,5 +58,58 @@ test_toolchain_dirs_allowed() {
     assert_contains "rw dir" "$out" '{"action":"external_directory","resource":"/home/nosuchagent/.nuget/**","effect":"allow"}'
     assert_contains "agent opencode cache" "$out" '{"action":"external_directory","resource":"/home/nosuchagent/.cache/opencode/**","effect":"allow"}'
     case "$out" in *dotnet*) fail "no project-specific dirs built in" ;; *) ok "no project-specific dirs built in" ;; esac
+}
+test_failed_launch_message_leaves_no_sid_but_keeps_the_session_findable() {
+    start_api; setup_project
+    fixture POST /api/session '{"data": {"id": "ses_new"}}'     # no prompt fixture: the prompt POST gets 404
+    out="$(bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md --no-push 2>&1)"; rc=$?
+    d="$HARNESS_STATE_DIR/demo/briefs/07a"
+    assert_eq "fails" "$rc" "2"
+    assert_contains "names the session" "$out" "ses_new"
+    assert_eq "no sid for a session that never got the brief" "$(cat "$d/sid" 2>/dev/null)" ""
+    assert_eq "kept for cost and resume" "$(cat "$d/sid.failed-1" 2>/dev/null)" "ses_new"
+    fixture POST /api/session/ses_new/prompt '{"data": {"id": "msg_1"}}'
+    out="$(bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md --no-push 2>&1)"
+    assert_eq "relaunch allowed" "$?" "0"
+}
+test_ampersand_in_values_survives_substitution() {
+    start_api; setup_project
+    out="$(bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md --no-push --dry-run --extra "Q&A: ask first, a|b \\1")"
+    assert_contains "&& in the e2e command (range form)" "$out" 'dev/start.sh && dev/run-e2e.sh --instances 3 --first-instance {K}'
+    assert_contains "& in --extra" "$out" 'Q&A: ask first, a|b \1'
+    assert_not_contains "no placeholder echoed" "$out" "{E2E}"
+}
+test_resume_after_a_dead_parent() {
+    start_api; setup_project
+    d="$HARNESS_STATE_DIR/demo/briefs/07a"; mkdir -p "$d"; echo ses_old > "$d/sid"; echo "original launch" > "$d/launch.txt"
+    fixture POST /api/session '{"data": {"id": "ses_new"}}'
+    fixture POST /api/session/ses_new/prompt '{"data": {"id": "msg_1"}}'
+    out="$(bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md --no-push --resume --role implementer=go/glm-5.3 2>/dev/null)"
+    assert_eq "prints the new sid" "$out" "ses_new"
+    assert_eq "new sid" "$(cat "$d/sid")" "ses_new"
+    assert_eq "old session kept for cost" "$(cat "$d/sid.prev1")" "ses_old"
+    assert_eq "old launch message kept" "$(cat "$d/launch.txt.prev1")" "original launch"
+    assert_contains "fallback model pinned" "$(jq -c . "$d/session-request.json")" '"model":{"providerID":"go","id":"glm-5.3"}'
+    msg="$(cat "$d/launch.txt")"
+    assert_contains "names the dead session" "$msg" "ses_old"
+    assert_contains "existing worktree, state.md" "$msg" '.worktrees/07a'; assert_contains "state.md" "$msg" "state.md"
+    assert_not_contains "no new worktree" "$msg" "git worktree add"
+    assert_contains "prompt sent" "$(requests | jq -r 'select(.path == "/api/session/ses_new/prompt") | .body')" "state.md"
+}
+test_resume_needs_a_session_and_plain_launch_points_to_resume() {
+    start_api; setup_project
+    out="$(bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md --resume --dry-run 2>&1)"
+    assert_eq "no session to resume" "$?" "2"; assert_contains "says so" "$out" "no session to resume"
+    mkdir -p "$HARNESS_STATE_DIR/demo/briefs/07a"; echo ses_old > "$HARNESS_STATE_DIR/demo/briefs/07a/sid"
+    out="$(bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md --dry-run 2>&1)"
+    assert_contains "points to --resume" "$out" "--resume"
+}
+test_chosen_model_is_reported_on_stderr_and_stdout_stays_the_sid() {
+    start_api; setup_project
+    fixture POST /api/session '{"data": {"id": "ses_new"}}'
+    fixture POST /api/session/ses_new/prompt '{"data": {"id": "msg_1"}}'
+    out="$(bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md --no-push 2>"$TEST_TMP/err")"
+    assert_eq "stdout is the sid" "$out" "ses_new"
+    assert_contains "model on stderr" "$(cat "$TEST_TMP/err")" "implementer model: go/mimo-v2.6-pro"
 }
 run_tests

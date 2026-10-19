@@ -44,11 +44,8 @@ req="$(jq -n --arg t "Review $tag${arm:+ ($arm)}" --arg p "${model%%/*}" --arg m
         --argjson perms "$(render_permissions "$here/../permissions.json")" \
         '{title: $t, agent: "build", model: {providerID: $p, id: $m}, permissions: $perms}')"
 printf '%s\n' "$req" > "$dir/session-request.json"
-sid="$(oc_api POST /api/session "$dir/session-request.json" | jq -r '.data.id // empty')"
-[ -n "$sid" ] || die "creating the session failed"
-printf '%s\n' "$sid" > "$dir/sid"
-sed -e "s|{TAG}|$tag|g" -e "s|{BRANCH}|$branch|g" -e "s|{BASE}|$base|g" "$prompt" > "$dir/launch.txt"
-jq -n --rawfile t "$dir/launch.txt" '{text: $t}' > "$dir/prompt-request.json"
-oc_api POST "/api/session/$sid/prompt" "$dir/prompt-request.json" | jq -e '.data.id' >/dev/null \
-    || die "sending the review prompt to $sid failed"
+text="$(<"$prompt")"
+text="${text//\{TAG\}/"$tag"}"; text="${text//\{BRANCH\}/"$branch"}"; text="${text//\{BASE\}/"$base"}"
+printf '%s\n' "$text" > "$dir/launch.txt"
+sid="$(oc_launch "$dir")"
 echo "$model $sid"

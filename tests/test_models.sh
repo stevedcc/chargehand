@@ -116,4 +116,17 @@ test_pick_all_capped_keeps_the_first_and_warns() {
     assert_eq "first model anyway" "$out" "z/glm-5.3"
     assert_contains "warns" "$(cat "$TEST_TMP/err")" "every model for task_review is at its busy limit"
 }
+test_pick_does_not_count_a_session_that_died_on_a_provider_error() {
+    start_api; write_models "$PICK_MODELS"; write_project p '{}'
+    fixture GET /api/session "{\"data\": [$(pick_session s1 z "$(now_ms)")]}"
+    fixture GET /api/session/s1/message '{"data": [{"type": "assistant", "error": {"type": "APIError", "message": "402"}}, {"type": "user"}]}'
+    assert_eq "dead session is not busy" "$(pick task_review 2>/dev/null)" "z/glm-5.3"
+}
+test_pick_counts_only_recently_active_sessions_as_busy() {
+    start_api; write_models "$PICK_MODELS"; write_project p '{}'
+    stale=$(( $(now_ms) - 30 * 60000 ))
+    fixture GET /api/session "{\"data\": [$(pick_session s1 z "$stale")]}"
+    fixture GET /api/session/s1/message "$busy_msgs"
+    assert_eq "a session silent for 30 min is not busy" "$(pick task_review 2>/dev/null)" "z/glm-5.3"
+}
 run_tests

@@ -43,7 +43,7 @@ owner repo <--fetch-- agent clone   (git fetch with upload-pack only: no hooks, 
    must print only `ok` lines. Read every line; a `FAIL` is a broken boundary, not noise.
 5. The owner starts the server with `OPENCODE_SERVER_PASSWORD` set, however they keep secrets.
 
-**Re-run step 2 and 4 after any change** to `sandbox.sh`, `implementer/` or a project config:
+**Re-run step 2 and 4 after any change** (the launcher's verify exit codes, lock and timeout, and `verify_timeout_min` in a project's config, only reach the agent after step 2) to `sandbox.sh`, `implementer/` or a project config:
 agents only see the root-owned installed copies.
 
 ## Red flags

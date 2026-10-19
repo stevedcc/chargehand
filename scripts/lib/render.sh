@@ -58,6 +58,7 @@ render_env() {
     q TEST_FILTER "$(jq -r '.test_filter // "."' "$f")"
     q VERIFY_BUILD "$(jq -r '.verify_build // ""' "$f")"
     q VERIFY_TESTS "$(jq -r '(.verify_tests // [])[]' "$f")"
+    q VERIFY_TIMEOUT_MIN "$(jq -r '.verify_timeout_min // 60' "$f")"
     q E2E_COMMAND "$(jq -r '.e2e_command // ""' "$f")"
     q E2E_VERIFY_FIRST "$(jq -r '.e2e_verify_first // 21' "$f")"
     q E2E_INSTANCES "$(jq -r '.e2e_instances_per_run // 3' "$f")"

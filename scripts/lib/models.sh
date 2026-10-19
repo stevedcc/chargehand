@@ -60,15 +60,18 @@ models_render() {
     ' "$HARNESS_CONFIG_DIR/models.json"
 }
 
-# models_busy PROVIDER: how many of PROVIDER's sessions updated in the last 6 hours are busy (no
-# "idle" message since their last prompt, the test watch.sh uses). Needs api.sh.
+# models_busy PROVIDER: how many of PROVIDER's sessions are busy: updated in the last
+# MODELS_BUSY_WINDOW_MIN minutes (20; a working session updates constantly), no "idle" message since
+# its last prompt (the test watch.sh uses), and its newest reply not an error (a session that died on
+# a 402 or a quota error holds no capacity). Needs api.sh.
 models_busy() {
     local provider="$1" since s n=0
-    since=$(( ($(date +%s) - 6 * 3600) * 1000 ))
+    since=$(( ($(date +%s) - ${MODELS_BUSY_WINDOW_MIN:-20} * 60) * 1000 ))
     while read -r s; do
         [ -n "$s" ] || continue
-        oc_api GET "/api/session/$s/message" 2>/dev/null | jq -e '.data | (map(.type) | index("user")) as $u
-            | .[0:$u] | map(select(.type == "idle")) | length == 0' >/dev/null && n=$((n + 1))
+        oc_api GET "/api/session/$s/message" 2>/dev/null | oc_newest_first | jq -e '.data | (map(.type) | index("user")) as $u
+            | .[0:$u] | (map(select(.type == "idle")) | length == 0)
+              and ((map(select(.type == "assistant")) | first // {} | .error) == null)' >/dev/null && n=$((n + 1))
     done < <(oc_api GET '/api/session?limit=1000' 2>/dev/null | jq -r --arg p "$provider" --argjson t "$since" \
         '.data[]? | select(.model.providerID == $p and (.time.updated // 0) >= $t) | .id')
     echo "$n"

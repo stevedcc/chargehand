@@ -61,8 +61,57 @@ test_verify_uses_a_fresh_checkout() {
     sha="$(git -C "$TEST_TMP/clone" rev-parse HEAD)"
     CHARGEHAND_ETC="$TEST_TMP/etc" bash "$SCRIPT" --verify --project "$name" "$sha" >/dev/null 2>&1; first=$?
     out="$(CHARGEHAND_ETC="$TEST_TMP/etc" bash "$SCRIPT" --verify --project "$name" "$sha" 2>&1)"; second=$?
-    rm -rf "$(getent passwd "$(id -un)" | cut -d: -f6)/verify/$name"
+    vclean "$name"
     assert_eq "first run passes" "$first" "0"
     assert_eq "second run starts clean" "$second" "0"
+}
+# Finding 10: verify gets a lock, a timeout and a clean start for its E2E instances.
+verify_repo() {   # verify_repo NAME EXTRA_JSON: a clone with one commit and a project that runs $EXTRA_JSON's suites
+    git init -q -b main "$TEST_TMP/clone"; git -C "$TEST_TMP/clone" -c user.name=t -c user.email=t@t commit -q --allow-empty -m one
+    git init -q --bare "$TEST_TMP/mirror.git"
+    project_env "$1" "{\"agent_clone\": \"$TEST_TMP/clone\", \"mirror\": \"$TEST_TMP/mirror.git\", \"target_branch\": \"main\", \"test_filter\": \"Passed!|TIMED OUT\", $2}"
+    VSHA="$(git -C "$TEST_TMP/clone" rev-parse HEAD)"
+}
+run_verify() { CHARGEHAND_ETC="$TEST_TMP/etc" bash "$SCRIPT" --verify --project "$1" "$VSHA" 2>&1; }
+vclean() { rm -rf "$(getent passwd "$(id -un)" | cut -d: -f6)/verify/$1" "$(getent passwd "$(id -un)" | cut -d: -f6)/verify/$1.lock"; }
+
+test_second_verify_of_one_project_is_refused() {
+    podman_ok || { echo "  skip  no podman socket"; return; }
+    local name="harness-test-lock-$$"
+    verify_repo "$name" '"verify_tests": ["sleep 6; echo Passed!"]'
+    run_verify "$name" >"$TEST_TMP/first.out" & local first=$!
+    sleep 2
+    out="$(run_verify "$name")"; rc=$?
+    assert_eq "second refused with exit 3" "$rc" "3"
+    assert_contains "says why" "$out" "already running"
+    wait "$first"; assert_eq "first still passes" "$?" "0"
+    vclean "$name"
+}
+test_a_hung_suite_is_killed_at_the_timeout() {
+    podman_ok || { echo "  skip  no podman socket"; return; }
+    local name="harness-test-timeout-$$"
+    verify_repo "$name" '"verify_timeout_min": 0.03, "verify_tests": ["sleep 60"]'
+    out="$(run_verify "$name")"; rc=$?
+    assert_eq "tests-failed exit 10" "$rc" "10"
+    assert_contains "says it timed out" "$out" "TIMED OUT"
+    vclean "$name"
+}
+test_e2e_instances_are_stopped_before_the_run_starts() {
+    podman_ok || { echo "  skip  no podman socket"; return; }
+    local name="harness-test-e2e-$$" log="/tmp/chargehand-$(id -un)-verify/e2e-order.log"
+    rm -f "$log"
+    verify_repo "$name" '"e2e_command": "echo run-e2e >> /tmp/e2e-order.log; echo Passed!", "e2e_stop": "echo stop-{I} >> /tmp/e2e-order.log", "e2e_verify_first": 5, "e2e_instances_per_run": 1, "verify_tests": ["echo Passed!"]'
+    run_verify "$name" >/dev/null
+    assert_eq "stop, run, stop" "$(tr '\n' ' ' < "$log" 2>/dev/null)" "stop-5 run-e2e stop-5 "
+    rm -f "$log"; vclean "$name"
+}
+test_failed_suite_exit_code_is_10() {
+    podman_ok || { echo "  skip  no podman socket"; return; }
+    local name="harness-test-fail-$$"
+    verify_repo "$name" '"verify_tests": ["echo Failed!; false"], "test_filter": "Failed!"'
+    run_verify "$name" >/dev/null; assert_eq "exit 10" "$?" "10"
+    verify_repo "$name" '"verify_build": "false", "verify_tests": ["echo Passed!"]'
+    run_verify "$name" >/dev/null; assert_eq "a failing build is 10 too" "$?" "10"
+    vclean "$name"
 }
 run_tests

@@ -49,4 +49,21 @@ test_large_session_list() {
     bash "$SCRIPT" --project demo --tag 03m >/dev/null 2>&1; assert_eq "runs" "$?" "0"
     assert_eq "priced" "$(line xm .usd)" "1"
 }
+test_failed_launch_sessions_count() {
+    start_api; brief 03m s1; echo s0 > "$HARNESS_STATE_DIR/demo/briefs/03m/sid.failed-1"
+    write_models '{"subscriptions": {"xm": {"pricing": {"per_mtok": 1}}}, "roles": {}}'
+    fixture GET /api/session "{\"data\": [$(session s1 '' xm m-1 0 1000000 0 0 0), $(session s0 '' xm m-1 0 2000000 0 0 0)]}"
+    bash "$SCRIPT" --project demo --tag 03m >/dev/null 2>&1
+    assert_eq "both sessions priced" "$(line xm .usd)" "3"
+}
+test_needs_no_column_tool() {
+    start_api; brief 03m s1
+    write_models '{"subscriptions": {"xm": {"pricing": {"per_mtok": 1}}}, "roles": {}}'
+    fixture GET /api/session "{\"data\": [$(session s1 '' xm m-1 0 1000000 0 0 0)]}"
+    mkdir -p "$TEST_TMP/bin"; printf '#!/bin/sh\necho "column: not installed" >&2\nexit 127\n' > "$TEST_TMP/bin/column"; chmod +x "$TEST_TMP/bin/column"
+    out="$(PATH="$TEST_TMP/bin:$PATH" bash "$SCRIPT" --project demo --tag 03m 2>&1)"; rc=$?
+    assert_eq "exit 0 without column" "$rc" "0"
+    assert_contains "table printed, columns aligned" "$out" "xm/m-1  1 sessions"
+    assert_contains "total" "$out" "Total"
+}
 run_tests

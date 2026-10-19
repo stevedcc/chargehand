@@ -1,6 +1,10 @@
 # Config, state and error helpers shared by every harness script. Source it, don't run it.
 # Config: $HARNESS_CONFIG_DIR (default ~/.config/chargehand): config.json, models.json,
 # projects/<name>.json. State: $HARNESS_STATE_DIR (default ~/.local/state/chargehand).
+# bash 5.2 turned on patsub_replacement: an "&" in the replacement of ${v//pat/rep} then stands for
+# the matched text, which corrupts values like "a && b" substituted into launch messages. Off here
+# so every script that sources this file substitutes literally.
+shopt -u patsub_replacement 2>/dev/null || true
 HARNESS_CONFIG_DIR="${HARNESS_CONFIG_DIR:-$HOME/.config/chargehand}"
 HARNESS_STATE_DIR="${HARNESS_STATE_DIR:-$HOME/.local/state/chargehand}"
 

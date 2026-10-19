@@ -51,4 +51,39 @@ test_accept_needs_a_verify_of_that_exact_commit() {
     assert_contains "names both commits" "$out" "moved since verify"
     assert_eq "owner branch unchanged" "$(g -C "$W" log -1 --format=%s main)" "base"
 }
+# Finding 5: two failures of a branch that IS a fast-forward must not be called "not a fast-forward".
+verified_branch_adding() {   # a file path the agent's commit adds, verified
+    repos; g -C "$C" checkout -q -b brief/x; echo agent > "$C/$1"; g -C "$C" add "$1"; g -C "$C" commit -q -m "agent adds $1"
+    sync fetch >/dev/null 2>&1; fake_sudo 0; PATH="$TEST_TMP/bin:$PATH" sync verify agent/brief/x >/dev/null
+}
+test_untracked_file_in_the_way_is_not_reported_as_non_ff() {
+    verified_branch_adding new.cs; echo mine > "$W/new.cs"
+    out="$(sync accept brief/x 2>&1)"; assert_eq "exit 2" "$?" "2"
+    assert_not_contains "not misdiagnosed" "$out" "not a fast-forward"
+    assert_contains "git's own text" "$out" "untracked working tree files would be overwritten"
+    assert_eq "owner branch unchanged" "$(g -C "$W" log -1 --format=%s main)" "base"
+}
+test_merge_error_text_is_filtered_as_agent_text() {   # agent-named files; git 2.5x already prints "?" for these bytes, so a guard only
+    name=$'evil\e]0;pwned\a.cs'
+    verified_branch_adding "$name"; echo mine > "$W/$name"
+    out="$(sync accept brief/x 2>&1)"; assert_eq "exit 2" "$?" "2"
+    assert_not_contains "no escape byte" "$out" $'\e'
+    assert_not_contains "no bell byte" "$out" $'\a'
+}
+test_stale_index_lock_is_not_reported_as_non_ff() {
+    verified_branch_adding new.cs; touch "$W/.git/index.lock"
+    out="$(sync accept brief/x 2>&1)"; assert_eq "exit 2" "$?" "2"
+    assert_not_contains "not misdiagnosed" "$out" "not a fast-forward"
+    assert_contains "git's own text" "$out" "index.lock"
+}
+# Finding 10: the launcher's exit codes say why a verify did not pass.
+test_verify_exit_codes_are_told_apart() {
+    repos
+    for pair in "10:the build or a suite failed" "4:the sandbox could not start" "3:another verify of demo is running" "1:could not run the verification"; do
+        fake_sudo "${pair%%:*}"; out="$(PATH="$TEST_TMP/bin:$PATH" sync verify main 2>&1)"; rc=$?
+        assert_eq "exit ${pair%%:*} passed through" "$rc" "${pair%%:*}"
+        assert_contains "says why for ${pair%%:*}" "$out" "${pair#*:}"
+        assert_eq "not recorded" "$(ls "$HARNESS_STATE_DIR/demo/verified" 2>/dev/null | wc -l)" "0"
+    done
+}
 run_tests

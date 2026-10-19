@@ -39,4 +39,16 @@ test_families_when_server_down() {
     export NOPE=x
     assert_eq "empty map" "$(bash "$SCRIPT" --families)" "{}"
 }
+test_wrong_server_password_is_a_problem() {
+    start_api; export TEST_SERVER_PASSWORD=wrong; write_models "{\"subscriptions\": {\"go\": {}}, $ROLES}"
+    fixture GET /api/model '{"data": []}'
+    out="$(HARNESS_TODAY=2026-10-10 bash "$SCRIPT")"; assert_eq "exit 3" "$?" "3"
+    assert_contains "says what" "$out" "server refused the request"
+}
+test_unreachable_server_is_a_note_not_a_problem() {
+    write_models "{\"subscriptions\": {\"go\": {}}, $ROLES}"
+    write_config '{"server_url": "http://127.0.0.1:9", "server_password": {"env": "NOPE"}}'; export NOPE=x
+    out="$(HARNESS_TODAY=2026-10-10 bash "$SCRIPT")"; assert_eq "exit 0" "$?" "0"
+    assert_contains "complete" "$out" "config complete"; assert_contains "note" "$out" "note: the server did not answer"
+}
 run_tests

@@ -5,9 +5,10 @@ Serves <dir>/fixtures/<METHOD><path>.json (query strings ignored). A numbered se
 <METHOD><path>.1.json, .2.json, ... is served one file per request, the last repeating.
 Every request is appended to <dir>/requests.jsonl as {method, path, query, auth, body}.
 Requests without HTTP Basic "opencode:$FAKE_API_PASSWORD" get 401; unknown paths get 404.
+If <dir>/delay holds a number of seconds, every answer waits that long first.
 Writes the port it listens on to <dir>/port.  Usage: fake_api.py <dir>
 """
-import base64, json, os, sys
+import base64, json, os, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
@@ -29,6 +30,8 @@ class Handler(BaseHTTPRequestHandler):
         with open(os.path.join(ROOT, "requests.jsonl"), "a") as log:
             log.write(json.dumps({"method": method, "path": parts.path, "query": parts.query,
                                   "auth": auth, "body": body}) + "\n")
+        if os.path.exists(os.path.join(ROOT, "delay")):
+            time.sleep(float(open(os.path.join(ROOT, "delay")).read().strip() or 0))
         if auth != EXPECTED:
             return self.reply(401, {"error": "unauthorized"})
         base = os.path.join(ROOT, "fixtures", method + parts.path)

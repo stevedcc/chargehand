@@ -19,6 +19,11 @@
 #   chargehand-sandbox                                  opencode serve on 127.0.0.1:4096, all projects
 #   chargehand-sandbox --selftest --project <name>      check the boundaries and the toolchain
 #   chargehand-sandbox --verify --project <name> <sha>  clean checkout of <sha>, build, all suites
+#
+# Exit codes: 0 ok (verify: build and every suite passed); 10 verify ran and the build, a suite or
+# the E2E run failed or timed out; 3 another verify of this project is running; 4 the sandbox could
+# not start (no Podman socket); 2 usage or config; anything else (1, 128 ...) the sandbox or the
+# checkout itself failed. serve and selftest: 0, or the failure's own code.
 set -euo pipefail
 
 HARNESS_ETC="${CHARGEHAND_ETC:-/etc/chargehand}"
@@ -87,7 +92,7 @@ PODMAN_SOCKET="$RUNTIME_DIR/podman/podman.sock"
 [ "$mode" = verify ] && PRIVATE_TMP="$PRIVATE_TMP-verify"
 mkdir -p "$PRIVATE_TMP" "$HOME/.config/opencode" "$HOME/.local/share/opencode" \
          "$HOME/.local/state/opencode" "$HOME/.cache/opencode"
-[ -S "$PODMAN_SOCKET" ] || { echo "Podman socket $PODMAN_SOCKET missing: systemctl --user enable --now podman.socket" >&2; exit 1; }
+[ -S "$PODMAN_SOCKET" ] || { echo "Podman socket $PODMAN_SOCKET missing: systemctl --user enable --now podman.socket" >&2; exit 4; }
 
 args=(
     --die-with-parent
@@ -135,6 +140,12 @@ if [ "$mode" = verify ]; then
     # A fresh checkout every run: a previous run's code could have planted hooks or config in a
     # persistent .git and rigged every later verification.
     VERIFY_DIR="$HOME/verify/$project"
+    # One verify per project: they share this directory, /tmp and the E2E instance range, and a
+    # second one's rm -rf would empty the first's checkout. The lock lives as long as the launcher
+    # (which stays the parent of bwrap), so a killed launcher frees it and takes the sandbox along.
+    mkdir -p "$HOME/verify"
+    exec 8>"$HOME/verify/$project.lock"
+    flock -n 8 || { echo "verify of $project is already running; wait for it (or for its timeout)" >&2; exit 3; }
     rm -rf "$VERIFY_DIR"; mkdir -p "$VERIFY_DIR"; args+=(--bind "$VERIFY_DIR" "$VERIFY_DIR")
 fi
 for p in "$HOME/.gitconfig" "$HOME/.opencode"; do
@@ -205,30 +216,44 @@ EOF
 # (filtered to summaries and failures), then its E2E command on instances of verify's own range.
 read -r -d '' VERIFY <<'EOF' || true
 set -euo pipefail
+# Every build, suite and E2E command runs under a timeout: a hung test (a stuck container, a
+# suspend) must end the verify, not wait for the orchestrator's own limit. A timeout is a failure.
+run_limited() {   # run_limited "<command>"
+    local rc=0
+    timeout -k 30 "${VERIFY_TIMEOUT_MIN}m" bash -c "$1" || rc=$?
+    if [ "$rc" -eq 124 ]; then echo "TIMED OUT after ${VERIFY_TIMEOUT_MIN} min: $1"; fi
+    return "$rc"
+}
+stop_e2e() {
+    local i
+    if [ -z "$E2E_COMMAND" ] || [ -z "$E2E_STOP" ]; then return 0; fi
+    for i in $(seq "$E2E_VERIFY_FIRST" $((E2E_VERIFY_FIRST + E2E_INSTANCES - 1))); do
+        eval "${E2E_STOP//\{I\}/$i}" >/dev/null 2>&1 || true
+    done
+}
 git -c core.hooksPath=/dev/null clone -q --no-checkout "$SRC" "$VERIFY_DIR"
 cd "$VERIFY_DIR"
 git -c core.hooksPath=/dev/null checkout -q --detach "$SHA"
 echo "Verifying $(git log --oneline -1)"
-[ -z "$VERIFY_BUILD" ] || eval "$VERIFY_BUILD"
 status=0
+if [ -n "$VERIFY_BUILD" ]; then
+    run_limited "$VERIFY_BUILD" || { echo "BUILD FAILED"; exit 10; }
+fi
 while IFS= read -r t <&3; do
     [ -n "$t" ] || continue
-    eval "$t" 2>&1 | grep -E -A1 "$TEST_FILTER" || status=1
+    run_limited "$t" 2>&1 | grep -E -A1 "$TEST_FILTER" || status=1
     [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
 done 3<<<"$VERIFY_TESTS"
 if [ -n "$E2E_COMMAND" ]; then
-    stop_e2e() {
-        local i
-        for i in $(seq "$E2E_VERIFY_FIRST" $((E2E_VERIFY_FIRST + E2E_INSTANCES - 1))); do
-            [ -z "$E2E_STOP" ] || eval "${E2E_STOP//\{I\}/$i}" >/dev/null 2>&1 || true
-        done
-    }
+    # Instances a killed earlier verify left on this range would fail this run on ports in use.
+    stop_e2e
     trap stop_e2e EXIT
     cmd="${E2E_COMMAND//\{N\}/$E2E_INSTANCES}"; cmd="${cmd//\{K\}/$E2E_VERIFY_FIRST}"
-    eval "$cmd" 2>&1 | grep -E -A1 "$TEST_FILTER" || status=1
+    run_limited "$cmd" 2>&1 | grep -E -A1 "$TEST_FILTER" || status=1
     [ "${PIPESTATUS[0]}" -eq 0 ] || status=1
 fi
-exit "$status"
+[ "$status" -eq 0 ] || exit 10
+exit 0
 EOF
 
 case "$mode" in
@@ -240,11 +265,13 @@ selftest)
         --setenv HARNESS_ETC "$HARNESS_ETC" --setenv HARNESS_SHARE "$HARNESS_SHARE" \
         -- bash -c "$SELFTEST" ;;
 verify)
-    exec bwrap "${args[@]}" --setenv SRC "$AGENT_CLONE" --setenv SHA "$sha" --setenv VERIFY_DIR "$VERIFY_DIR" \
+    # Not exec'd: the launcher keeps the lock on fd 8 while bwrap runs (and bwrap does not get it).
+    bwrap "${args[@]}" --setenv VERIFY_TIMEOUT_MIN "$VERIFY_TIMEOUT_MIN" --setenv SRC "$AGENT_CLONE" --setenv SHA "$sha" --setenv VERIFY_DIR "$VERIFY_DIR" \
         --setenv TEST_FILTER "$TEST_FILTER" --setenv VERIFY_BUILD "$VERIFY_BUILD" --setenv VERIFY_TESTS "$VERIFY_TESTS" \
         --setenv E2E_COMMAND "$E2E_COMMAND" --setenv E2E_VERIFY_FIRST "$E2E_VERIFY_FIRST" \
         --setenv E2E_INSTANCES "$E2E_INSTANCES" --setenv E2E_STOP "$E2E_STOP" \
-        -- bash -c "$VERIFY" ;;
+        -- bash -c "$VERIFY" 8>&-
+    exit $? ;;
 serve)
     if [ -n "$password" ]; then
         exec 3<<<"$password"; unset password

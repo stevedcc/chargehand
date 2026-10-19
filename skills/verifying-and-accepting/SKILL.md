@@ -19,7 +19,14 @@ three mistakes this skill prevents.
    the brief's scope; nothing in the build, test project, scripts or test helpers that decides
    its own result (a test runner that prints "Passed" or exits 0 regardless is a forged verify).
 3. `bash scripts/agent-sync.sh --project <p> verify agent/brief/<tag>` with
-   `run_in_background`: a clean checkout built and tested **as the agent user, in the sandbox**.
+   `run_in_background` and **`timeout: 7200000`** (the default 30-minute limit kills a verify that
+   legitimately runs E2E): a clean checkout built and tested **as the agent user, in the sandbox**.
+   Each build, suite and E2E command is also limited by the project's `verify_timeout_min`
+   (default 60; a timeout counts as a failure). Exit codes: 0 passed; 10 the build or a suite
+   failed or timed out (read the output); 3 another verify of the project is running (never start
+   a second one: wait, or restart only after the first is gone); 4 the sandbox could not start
+   (Podman socket); anything else: it could not run (sudo refused, launcher or sudoers out of
+   date: re-run setup). Only exit 0 allows accept.
    Its summary lines show that the agent's tests ran in isolation and what they reported. They
    are not independent proof: the tests are agent content. Verify catches honest mistakes;
    step 2 catches dishonest ones.
@@ -27,6 +34,9 @@ three mistakes this skill prevents.
    the exact commit the last passing verify ran (it refuses if a later fetch moved the branch).
    - "not a fast-forward": the agent merges `origin/<target>` into its branch (never rebase),
      then fetch, read the new diff, verify again.
+   - "merging ... failed (it is a fast-forward ...)": the cause is in the owner's worktree (an
+     untracked file where the agent's commit adds one, a stale `.git/index.lock`); git's text is
+     in the message. Fix that and accept again; do not send the agent a merge round.
 5. `writing-retros`.
 
 ## While any brief is running or waiting to be accepted

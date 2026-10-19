@@ -17,6 +17,21 @@ empty shell call and the parent waited an hour.
    branch first, pins models, sends the launch message, saves the session id). `--help` for the
    rest; `--dry-run` shows the message.
 
+## Resume a dead brief
+A parent session whose provider refuses it (402, quota, authentication) cannot be moved to another
+model: its model is pinned, and a "continue" prompt fails the same way. The way on is a new
+session that carries on from the worktree and `state.md` (implementer rules: "Resumable from
+disk"):
+`bash scripts/start-brief.sh --project <p> --tag <tag> --brief <path> --resume --role implementer=<provider/model>`
+(add `--no-push` if the target branch is unchanged). The old session id becomes `sid.prev<n>`, so
+`brief-cost.sh` keeps counting it and the watcher follows the new `sid`; the old launch message is
+kept as `launch.txt.prev<n>`. Restart the watcher afterwards. Check first that the worktree
+exists in the agent clone and that the fallback's subscription is live (`models.sh`). If the
+session never got its launch message, the launcher keeps it as `sid.failed-<n>` and writes no
+`sid`: just launch again. Whether a prompt can carry a per-message `model` (which would make a
+resume without a new session possible) is untested: only session creation and prompts as the
+scripts send them are used here.
+
 ## Branches implemented outside the sandbox
 A Claude subagent implements in the owner's repo (rules: `implementer/claude-subagent-rules.md`).
 Its reviews run sandboxed: `bash scripts/start-review.sh --project <p> --tag <tag> --branch <b>
@@ -33,26 +48,33 @@ and **`timeout: 7200000`** (the default background limit is 30 min; the watcher 
 running brief and every subagent below it. Restart it after every exit you have handled.
 Claude Code stops background commands at 2 hours (the maximum `timeout`) and then advises not to
 restart; for a watcher, ignore that advice. If a brief's latest session or subagent has activity
-in the last 20 minutes, restart the watcher at once, without asking, as often as needed until the
-brief finishes; mention the restart in one line. If nothing has moved for 20 minutes, treat it as
-exit 7 (stalled) instead.
+in the last 15 minutes (the watcher's stall threshold, `--stall-min`), restart the watcher at
+once, without asking, as often as needed until the brief finishes; mention the restart in one
+line. If nothing has moved for 15 minutes, treat it as exit 7 (stalled) instead.
 
-| Exit | Do |
-|---|---|
-| 0 idle | `verifying-and-accepting` |
+Only tags that are still running: drop a tag that has gone idle (exit 0, 9) or been accepted
+before restarting, or the watcher exits again at once on its idle. One watcher per brief: a second
+one for the same tag refuses to start (exit 2, pid file `watch.pid` in the brief's state folder);
+stop the old one first. The watcher reads messages newest-first by `time.created`, so it does not
+depend on the order the server lists them in.
+
+| 0 idle | The outcome is a success (`succeeded`): `verifying-and-accepting`. Exit 0 is never an idle that ended in an error: those are exit 9. |
 | 1 timeout | nothing happened; restart the watcher |
-| 4 permission | read the resource; `bash scripts/answer.sh permission <s> <id> once\|reject "<why>"`. Never allow paths outside the clone and `/tmp`. These rules are guard rails, not a boundary: the agent runs as the same user as the OpenCode server and can read its password, so it could answer its own requests. The boundary is the agent user, the sandbox and your diff review. |
+| 2 usage error | the watcher did not start: no `sid` for a tag, a bad tag or project, bad config, or the brief is already being watched. The message says which; fix it, then start the watcher. (A script `die` anywhere uses 2.) |
+| 4 permission | (only requests from the watched briefs' sessions stop the watcher; a request from any other session is printed once as information and answered by whoever runs that session) read the resource; `bash scripts/answer.sh permission <s> <id> once\|reject "<why>"`. Never allow paths outside the clone and `/tmp`. These rules are guard rails, not a boundary: the agent runs as the same user as the OpenCode server and can read its password, so it could answer its own requests. The boundary is the agent user, the sandbox and your diff review. |
 | 5 question | answer from the brief and the rules with `answer.sh form`; ask the owner only for decisions below |
 | 6 subagent error | read that child's last messages first, then prompt the brief's session: "Subagent `<s>` ended with `<error>` at `<time>`; check its work in git and continue." Quota errors: the fallback model in the launch message applies. |
-| 7 stalled | inspect the children. A child whose last tool calls completed with no model reply since is a hung model request: `POST /api/session/<child>/interrupt?resume=false`; the parent sees the subagent cancelled and retries (07c, 2026-10-10). A tool call shown as `running` for 20 minutes is usually an unanswered permission request: check `GET /api/session/<s>/permission` first and answer it (only `watch.sh` reports permissions; a home-made watcher missed two in 09a, 2026-10-12). Only if none is pending and the tool's process is gone: `interrupt` the session, wait for `idle`, then prompt it; a prompt sent while it is busy is queued and dropped by the interrupt. Otherwise as 6. |
-| 8 server down | tell the owner; nothing else works until it is back |
+| 7 stalled | inspect the children. A child whose last tool calls completed with no model reply since is a hung model request: `POST /api/session/<child>/interrupt?resume=false`; the parent sees the subagent cancelled and retries (07c, 2026-10-10). A tool call shown as `running` for 15 minutes is usually an unanswered permission request: check `GET /api/session/<s>/permission` first and answer it (only `watch.sh` reports permissions; a home-made watcher missed two in 09a, 2026-10-12). Only if none is pending and the tool's process is gone: `interrupt` the session, wait for `idle`, then prompt it; a prompt sent while it is busy is queued and dropped by the interrupt. Otherwise as 6. |
+| 8 server down | tell the owner; nothing else works until it is back. If the report says `API LOCK STUCK`, the server is fine: another script (a second watcher, a `brief-cost.sh`, a hung wrapper) holds `<state dir>/api.lock`; find and end it, then restart. |
+| 9 brief session error | The brief's own session failed (provider error such as 402, quota or authentication) or went idle with an outcome that is not a success. **Never verify it.** Show the owner the provider and the message from the report. On 402 or a quota error tell the owner at once: the session's model is pinned and the provider refuses it, so prompting the same session fails again; resume on the fallback model from the launch message (see Resume a dead brief); ask first only if that fallback is a pay-per-use model. Other errors: read the last messages, then prompt the session to continue (if it errors again, resume). |
+| 10 watcher blind | The watcher could not read the brief's messages for 3 polls (the report says why: session not on the server, empty message list, list fetch failing). The brief may be fine; restarting will not help until the cause is fixed. Check the server and `sid` (`start-brief.sh` writes `sid` only after the launch message is accepted), then restart. |
 
 Send prompts with the API (`POST /api/session/<sid>/prompt` `{text}`, via `oc_api` in
 `scripts/lib/api.sh`).
 
 ## Parallel briefs: integrate early
 While two or more briefs run, run `bash scripts/integrate.sh --project <p>` in the background
-every 10 minutes (it exits 1 on a conflict). It checks, in git's object database only (no build,
+every 10 minutes (it exits 1 on a conflict, 2 when it could not run, e.g. the fetch failed; it shares a lock with `agent-sync.sh fetch`, so the two no longer collide). It checks, in git's object database only (no build,
 no agent code run), that each brief merges into the target and every pair merges with each other.
 On a conflict: tell both agents which files and lines clash and how to keep their changes apart,
 before either is accepted.

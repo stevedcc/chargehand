@@ -13,6 +13,7 @@
   "e2e_stop": "./stop-local.sh --e2e --instance {I}",
   "port_check": "ss -ltn shows which ports are already in use",
   "test_filter": "Passed!|Failed!|^\\s+Failed \\S+ \\[|Error Message",
+  "verify_timeout_min": 60,
   "verify_build": "dotnet build Example.slnx -nologo -v quiet",
   "verify_tests": ["dotnet test tests/Example.Tests --no-build"],
   "toolchain": { "ro": ["/opt/sdk", "~/.cache/ms-playwright"], "rw": ["~/.nuget", "~/.dotnet"] },

@@ -6,16 +6,18 @@
 # code is run (agent-sync.sh's rule), nothing is committed, so nothing needs throwing away.
 # Usage: integrate.sh --project <name> [<tag>...]   (default: briefs with a session and commits
 #        not yet on the target)
-# Exit 0 when everything merges cleanly, 1 when something conflicts (files listed), 2 on usage.
+# Exit 0 when everything merges cleanly, 1 when something conflicts (files listed), 2 on usage or
+# when it could not run (fetch failed, git too old).
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_ROOT="$(cd "$here/../../.." && pwd)"
 . "$HARNESS_ROOT/scripts/lib/harness.sh"
-[ "${1:-}" = --project ] && [ "$#" -ge 2 ] || { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ "${1:-}" = --project ] && [ "$#" -ge 2 ] || { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 project="$2"; shift 2
 repo="$(project_get "$project" owner_worktree)"
 target="$(project_get "$project" target_branch)"
-bash "$HARNESS_ROOT/skills/verifying-and-accepting/scripts/agent-sync.sh" --project "$project" fetch >/dev/null 2>&1
+bash "$HARNESS_ROOT/skills/verifying-and-accepting/scripts/agent-sync.sh" --project "$project" fetch >/dev/null \
+    || die "fetch of the agent clone failed (git's message is above)"
 cd "$repo"
 git merge-tree --write-tree "$target" "$target" >/dev/null 2>&1 || die "this git has no merge-tree --write-tree (needs 2.38+)"
 

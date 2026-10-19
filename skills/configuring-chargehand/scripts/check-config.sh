@@ -39,5 +39,16 @@ if [ "${1:-}" = --project ]; then
         fi
     fi
 fi
-if [ "${#problems[@]}" -eq 0 ]; then echo "chargehand config complete"; exit 0; fi
+# One authenticated call: --families hides a 401 as {}, so a wrong server_password would pass.
+note=
+if [ -f "$c" ] && jq -e '.server_password | type == "object"' "$c" >/dev/null 2>&1; then
+    oc_api GET /api/model >/dev/null 2>&1 && src=0 || src=$?
+    case "$src" in
+        0) ;;
+        22) problems+=("config.json: the server refused the request (wrong server_password, or this is not an OpenCode server)") ;;
+        2) problems+=("config.json: server_password cannot be read (see: bash $0 --available-models)") ;;
+        *) note=" (note: the server did not answer, status $src; password and model families not checked)" ;;
+    esac
+fi
+if [ "${#problems[@]}" -eq 0 ]; then echo "chargehand config complete$note"; exit 0; fi
 printf '%s\n' "${problems[@]}"; exit 3

@@ -20,10 +20,11 @@ while [ $# -gt 0 ]; do
     esac
 done
 dir="$(brief_dir "$project" "$tag")"; [ -s "$dir/sid" ] || die "no session for brief $tag ($dir/sid)"
-# A resumed brief (resume after a quota stop) keeps its earlier sessions in sid.prev*; all count.
+# A resumed brief (resume after a quota stop) keeps its earlier sessions in sid.prev*, a launch
+# whose message failed in sid.failed-*; all count.
 # The session list easily exceeds the 128 KB argument limit, so it goes to jq on stdin.
 oc_api GET '/api/session?limit=1000' \
-| jq --slurpfile m "$HARNESS_CONFIG_DIR/models.json" --argjson roots "$(cat "$dir/sid" "$dir"/sid.prev* 2>/dev/null | jq -R . | jq -s .)" --arg wt "/.worktrees/$tag" '
+| jq --slurpfile m "$HARNESS_CONFIG_DIR/models.json" --argjson roots "$(cat "$dir/sid" "$dir"/sid.prev* "$dir"/sid.failed-* 2>/dev/null | jq -R . | jq -s .)" --arg wt "/.worktrees/$tag" '
     def sum(f): map(f) | add // 0;
     def r2: if . == null then null else (. * 100 | round) / 100 end;
     .data as $d
@@ -57,4 +58,10 @@ jq -r '(.lines[] | "\(.provider)/\(.model)\t\(.sessions) sessions\t"
           + (if .pct_of_month == null then "" else "\(.pct_of_month)% of month" end) + "\t"
           + (if .usd == null then "-" else "$\(.usd)" end)),
        (.metered_pct_of_month | to_entries[] | "\(.key) meter\t\t\t\t\(.value)% of month\t"),
-       "Total\t\t\t\t\t$\(.total_usd)"' "$dir/cost.json" | column -t -s $'\t'
+       "Total\t\t\t\t\t$\(.total_usd)"' "$dir/cost.json" \
+| awk -F'\t' '   # aligned columns without the column tool (not installed everywhere)
+    { for (i = 1; i <= NF; i++) { c[NR, i] = $i; if (length($i) > w[i]) w[i] = length($i) }
+      if (NF > nf) nf = NF; n = NR }
+    END { for (r = 1; r <= n; r++) { line = ""
+            for (i = 1; i <= nf; i++) { line = line c[r, i]; if (i < nf) line = line sprintf("%*s", w[i] - length(c[r, i]) + 2, "") }
+            sub(/ +$/, "", line); print line } }'
