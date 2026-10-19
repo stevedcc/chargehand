@@ -15,4 +15,4 @@ locations**, and the task text.
    anything the reference doesn't show how to handle. Name the target and what's different.
    Recognising "this one is different" is the most valuable thing you do.
 4. Commit per AGENTS.md (explicit paths, message says which reference commit was applied).
-   Run the full suites through the `test-runner` subagent and include its summary lines.
+   Run the full suites yourself, in the foreground, and include their summary lines verbatim.

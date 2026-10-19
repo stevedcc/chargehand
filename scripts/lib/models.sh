@@ -55,7 +55,7 @@ models_render() {
         line("this session and its implementer subagents"; "implementer"),
         line("per-task reviews and re-reviews"; "task_review"),
         line("final whole-branch review"; "final_review"),
-        "- test-runner and pattern-applier: pinned in their agent definitions; do not override them.",
+        "- pattern-applier: pinned in its agent definition; do not override it.",
         "Allowed providers: " + ([$s | to_entries[] | select((.value.ends // "9999-12-31") >= $today) | "`\(.key)/`"] | join(", ")) + ". Never any other provider."
     ' "$HARNESS_CONFIG_DIR/models.json"
 }

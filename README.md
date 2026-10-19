@@ -36,8 +36,8 @@ instead of upgrading the one you have:
   cost is still measured, per model, as a share of each plan, so you know what a feature costs.
 - **The right model for each job.** A strong model implements; task reviews and the final review
   go to models from a **different family** than the implementer (Chargehand refuses an allocation
-  where they match, so a model never grades its own work); test runs and repetitive mechanical
-  edits go to a cheap, fast model. Change any role per project or per brief.
+  where they match, so a model never grades its own work); repetitive mechanical edits go
+  to a cheap, fast model. Change any role per project or per brief.
 - **Briefs that hold up when nobody is watching.** Each brief is a written plan with measured
   tests, a check that must fail when the fix is removed, and an independent review before you
   see it. You come back to finished, reviewed, verified work, or to one clear question.
@@ -119,8 +119,8 @@ through `accept`. On the orchestrating side, Claude Code with Superpowers' `brai
 | `verifying-and-accepting` | Sandboxed verification and the fast-forward accept |
 | `writing-retros` | A blameless retro per brief, with cost per model (`brief-cost.sh`) |
 
-The implementer side (`implementer/`) holds the rules every agent session reads, and two cheap
-subagents: a test runner, and a pattern applier for repeated mechanical changes.
+The implementer side (`implementer/`) holds the rules every agent session reads, and a cheap
+pattern-applier subagent for repeated mechanical changes.
 
 ## The sandbox
 
@@ -206,7 +206,7 @@ Once per machine; steps 4 and 5 again for each further project.
    It creates the agent user, its clone of your repository and the read-only mirror it pulls
    from, the root-owned launcher `/usr/local/bin/chargehand-sandbox` and project settings
    (`/etc/chargehand/`), a sudoers entry allowing only the launcher's fixed forms, and the agent's
-   OpenCode config: Chargehand's rules, the two pinned helper subagents, and the
+   OpenCode config: Chargehand's rules, the pinned pattern-applier subagent, and the
    [Superpowers](https://github.com/obra/superpowers) plugin (added if missing; if your own
    `~/.config/opencode/opencode.json` exists, it is the starting point, providers included).
 5. **Give the agent user OpenCode and your subscriptions** (first time only; setup prints these):

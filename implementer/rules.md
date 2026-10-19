@@ -3,6 +3,7 @@
 These rules come from the Chargehand that launched you. The project's own AGENTS.md says how to
 develop the project; these say how you work inside the harness. Where a skill's instructions
 conflict with either file, the files win.
+Where this file and your launch message disagree, stop and report; neither overrides the other.
 
 ## Roles
 
@@ -70,11 +71,6 @@ owner's.
   Never pick another model, version or provider to save cost or time. Fall back only as the launch
   message says, and record it. Reviewers always come from a different model family than the
   implementer; the launch message's allocation already ensures that.
-  - **`test-runner`** (a subagent with its own pinned model): full-suite runs and builds, for
-    implementers *and* reviewers. Give it the exact commands; it returns the verbatim summary lines
-    and failures. This keeps long test output out of expensive contexts. Quick red/green runs of
-    one test class stay inline. If its report lacks the verbatim summary lines or contradicts
-    itself, rerun the command yourself.
   - **`pattern-applier`** (a subagent with its own pinned model): tasks the brief or the
     controller marks **"apply pattern from commit `<sha>`"**, i.e. repeating an already reviewed
     change in further locations. The first instance of a pattern is always designed and

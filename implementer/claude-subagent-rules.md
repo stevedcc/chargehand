@@ -5,7 +5,7 @@ subagent** in its own git worktree, instead of an OpenCode session in the agent 
 replace `implementer/rules.md` for that case: the project's own AGENTS.md still says how to develop
 the project; these say how you work inside the harness. Where a skill's instructions conflict with
 either file, the files win. Where AGENTS.md describes the OpenCode agents' clone, mirror,
-`git pull`/`git worktree`/merge workflow, sandbox paths or test-runner subagents, **these rules
+`git pull`/`git worktree`/merge workflow, sandbox paths or subagents that run tests, **these rules
 apply instead**.
 
 ## Roles

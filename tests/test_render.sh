@@ -10,6 +10,11 @@ test_rules_with_and_without_tools() {
     write_config '{}'
     assert_contains "sudo alone" "$(render_rules "$HARNESS_ROOT/implementer/rules.md")" '`sudo`;'
 }
+test_rules_name_no_test_runner() {
+    assert_eq "no test-runner anywhere in the rules or agents" "$(grep -rn 'test-runner' "$HARNESS_ROOT/implementer" | wc -l)" "0"
+    assert_contains "launch message and rules disagree: stop" "$(cat "$HARNESS_ROOT/implementer/rules.md")" \
+        "Where this file and your launch message disagree, stop and report; neither overrides the other."
+}
 test_rules_name_no_project() {
     out="$(grep -niE 'newblog|crawford|blog-framework|dotnet|tswap|kubectl|helm|mimo|kimi|glm|deepseek' "$HARNESS_ROOT/implementer/rules.md" "$HARNESS_ROOT/implementer/agents/"*.md)"
     assert_eq "no project, tool or model names" "$out" ""
@@ -21,10 +26,14 @@ test_opencode_config_keeps_existing_keys() {
     assert_eq "rules added once" "$(jq -c .instructions <<<"$out")" '["/x.md","/usr/local/share/chargehand/rules.md"]'
     again="$(echo "$out" > "$TEST_TMP/oc2.json"; render_opencode_config "$TEST_TMP/oc2.json" /usr/local/share/chargehand go/mimo-v2.6-flash)"
     assert_eq "idempotent" "$(jq -c .instructions <<<"$again")" '["/x.md","/usr/local/share/chargehand/rules.md"]'
-    assert_eq "test-runner pinned" "$(jq -r '.agents["test-runner"].model' <<<"$out")" "go/mimo-v2.6-flash"
-    assert_eq "test-runner may not edit" "$(jq -c '.agents["test-runner"].permissions' <<<"$out")" \
-        '[{"action":"edit","resource":"*","effect":"deny"},{"action":"webfetch","resource":"*","effect":"deny"}]'
-    assert_contains "prompt inlined" "$(jq -r '.agents["test-runner"].system' <<<"$out")" "You run commands and report their results."
+    assert_eq "no test-runner subagent" "$(jq -c '.agents | has("test-runner")' <<<"$out")" "false"
+    assert_eq "pattern-applier pinned" "$(jq -r '.agents["pattern-applier"].model' <<<"$out")" "go/mimo-v2.6-flash"
+    assert_contains "prompt inlined" "$(jq -r '.agents["pattern-applier"].system' <<<"$out")" "You apply a known pattern"
+}
+test_opencode_config_drops_an_old_test_runner() {
+    echo '{"agents": {"test-runner": {"model": "x"}, "mine": {"model": "y"}}}' > "$TEST_TMP/oc.json"
+    out="$(render_opencode_config "$TEST_TMP/oc.json" /s go/m-1)"
+    assert_eq "old test-runner removed, own agent kept" "$(jq -c '.agents | keys' <<<"$out")" '["mine","pattern-applier"]'
 }
 test_opencode_config_from_nothing() {
     out="$(render_opencode_config /nonexistent /s go/m-1)"
