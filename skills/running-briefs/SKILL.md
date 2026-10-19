@@ -35,6 +35,7 @@ scripts send them are used here.
 
 ## Branches implemented outside the sandbox
 A Claude subagent implements in the owner's repo (rules: `implementer/claude-subagent-rules.md`).
+This implementer is trusted like you: its builds and tests run with your rights. Use it only on repos whose tests you would run yourself.
 Its reviews run sandboxed: `bash scripts/start-review.sh --project <p> --tag <tag> --branch <b>
 --base <sha> --role task_review|final_review --prompt <file>` (`--help`). The review session
 fetches the branch into the agent clone, so `agent-sync.sh fetch`/`verify` then work as usual.

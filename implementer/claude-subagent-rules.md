@@ -1,5 +1,7 @@
 # Harness rules for Claude subagent implementers
 
+This implementer is trusted like you: its builds and tests run with your rights. Use it only on repos whose tests you would run yourself.
+
 These rules are for an implementer started by the orchestrator (Claude Code) as a **Claude
 subagent** in its own git worktree, instead of an OpenCode session in the agent sandbox. They
 replace `implementer/rules.md` for that case: the project's own AGENTS.md still says how to develop

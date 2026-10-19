@@ -101,6 +101,7 @@ through `accept`. On the orchestrating side, Claude Code with Superpowers' `brai
   plan's allowance is spent, or for work that needs a stronger model). It works in its own
   worktree under `implementer/claude-subagent-rules.md`; `start-review.sh` pushes its branch to
   the agents' mirror and starts an OpenCode review of it, so verify and accept stay the same.
+  This implementer is trusted like you: its builds and tests run with your rights. Use it only on repos whose tests you would run yourself.
 - **Briefs can run side by side.** `integrate.sh` test-merges their branches early (`git merge-tree`),
   so a conflict shows up while both briefs are still running, not at accept time.
 - **Plans with a short window** (for example a 5-hour quota) can declare `max_busy_sessions`;
