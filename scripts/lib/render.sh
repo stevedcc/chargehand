@@ -86,13 +86,17 @@ render_sudoers() {
 CLONE_EXCLUDE_SH='f="$1/.git/info/exclude"; mkdir -p "$1/.git/info"
 for p in .superpowers/ "wip-*.md"; do grep -qxF -- "$p" "$f" 2>/dev/null || printf "%s\n" "$p" >> "$f"; done'
 
-# strip_provider_secrets FILE: FILE's JSON on stdout without credentials: a top-level "apiKey" and
-# every string under "provider" whose key looks like a credential (key, token, secret, password,
-# auth, credential). The dropped paths (never the values) go to stderr. Setup uses it on the owner's
-# opencode.json before the agent user gets a copy: the agent logs in to its providers itself.
+# strip_provider_secrets FILE: FILE's JSON on stdout without credentials. Dropped, at any depth
+# except under "keybinds": every string whose key matches (case-insensitive) key, token, secret,
+# password, auth, authorization, bearer, credential or cookie; every string value starting with
+# "Bearer " or "Basic " whatever its key; every string under a "headers", "environment" or "env"
+# object inside "mcp". The dropped paths (never the values) go to stderr. Setup uses it on the
+# owner's opencode.json before the agent user gets a copy: the agent logs in to its providers itself.
 strip_provider_secrets() {
-    local filter='[paths(type == "string") | select(((.[0] == "provider") or (length == 1 and .[0] == "apiKey"))
-        and (last | type == "string") and (last | test("key|token|secret|password|auth|credential"; "i")))]'
+    local filter='[. as $d | paths(type == "string") | . as $p | select($p[0] != "keybinds")
+        | select((($p | last | type) == "string" and ($p | last | test("key|token|secret|password|auth|authorization|bearer|credential|cookie"; "i")))
+                 or ($d | getpath($p) | test("^(Bearer|Basic) "))
+                 or ($p[0] == "mcp" and ($p[1:-1] | any(. == "headers" or . == "environment" or . == "env"))))]'
     jq -r "$filter"' | .[] | map(tostring) | join(".")' "$1" | sed 's/^/  dropped from the copied opencode.json: /' >&2
     jq "delpaths($filter)" "$1"
 }

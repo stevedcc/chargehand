@@ -106,6 +106,22 @@ J
     assert_contains "password named" "$dropped" "provider.other.options.password"
     for v in sk-live-1 k-2 t-3 s-4 p-5 top-secret-0; do assert_not_contains "value $v never printed" "$dropped" "$v"; done
 }
+test_owner_config_mcp_credentials_are_dropped_everywhere() {
+    cat > "$TEST_TMP/owner.json" <<'J'
+{"keybinds": {"auth_token": "ctrl+t"}, "theme": "dark", "note": "Bearer abc-77",
+ "mcp": {"remote": {"type": "remote", "url": "https://mcp.example/sse", "headers": {"Authorization": "Bearer mcp-secret-1", "X-Team": "blue"}},
+         "local": {"type": "local", "command": ["srv"], "environment": {"GITHUB_PAT": "ghp-env-2", "LOG": "debug"}}},
+ "tools": {"x": {"Cookie": "sid=cook-3", "basic": "Basic dXNlcjpwdw==", "name": "keep"}}}
+J
+    out="$(strip_provider_secrets "$TEST_TMP/owner.json" 2>"$TEST_TMP/dropped")"
+    assert_eq "credentials gone, the rest kept" "$(jq -c . <<<"$out")" \
+        '{"keybinds":{"auth_token":"ctrl+t"},"theme":"dark","mcp":{"remote":{"type":"remote","url":"https://mcp.example/sse","headers":{}},"local":{"type":"local","command":["srv"],"environment":{}}},"tools":{"x":{"name":"keep"}}}'
+    dropped="$(cat "$TEST_TMP/dropped")"
+    assert_contains "MCP Authorization header named" "$dropped" "mcp.remote.headers.Authorization"
+    assert_contains "MCP env named" "$dropped" "mcp.local.environment.GITHUB_PAT"
+    assert_contains "bearer value under a harmless key named" "$dropped" "note"
+    for v in mcp-secret-1 blue ghp-env-2 debug cook-3 dXNlcjpwdw abc-77; do assert_not_contains "value $v never printed" "$dropped" "$v"; done
+}
 test_owner_config_without_secrets_prints_nothing() {
     echo '{"provider": {"x": {"options": {"baseURL": "u"}}}}' > "$TEST_TMP/owner.json"
     assert_eq "nothing dropped" "$(strip_provider_secrets "$TEST_TMP/owner.json" 2>&1 >/dev/null)" ""
