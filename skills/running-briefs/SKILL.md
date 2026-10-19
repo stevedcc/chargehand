@@ -58,6 +58,8 @@ in the last 15 minutes (the watcher's stall threshold, `--stall-min`), restart t
 once, without asking, as often as needed until the brief finishes; mention the restart in one
 line. If nothing has moved for 15 minutes, treat it as exit 7 (stalled) instead.
 
+Never `sleep` or poll in a foreground call to wait for an agent, the watcher or verify; start the watcher or verify with `run_in_background` and act when it exits. The harness wakes you.
+
 Only tags that are still running: drop a tag that has gone idle (exit 0, 9) or been accepted
 before restarting, or the watcher exits again at once on its idle. One watcher per brief: a second
 one for the same tag refuses to start (exit 2, pid file `watch.pid` in the brief's state folder);
