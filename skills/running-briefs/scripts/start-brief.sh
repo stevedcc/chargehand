@@ -38,6 +38,9 @@ done
 dir="$(brief_dir "$project" "$tag")"
 if [ "$resume" -eq 1 ]; then
     [ -s "$dir/sid" ] || die "brief $tag has no session to resume ($dir/sid); launch it without --resume"
+    # brief.txt is written at launch; a brief launched before it existed is not checked.
+    [ ! -s "$dir/brief.txt" ] || [ "$(<"$dir/brief.txt")" = "$brief" ] \
+        || die "brief $tag was launched with $(<"$dir/brief.txt"), not $brief: resume with the same --brief"
 else
     [ ! -s "$dir/sid" ] || die "brief $tag already has a session ($(cat "$dir/sid")); to carry on after a provider error use --resume (--role implementer=<fallback>)"
 fi
@@ -100,6 +103,7 @@ if [ "$resume" -eq 1 ]; then
     mv "$dir/sid" "$dir/sid.prev$n"; [ ! -e "$dir/launch.txt" ] || mv "$dir/launch.txt" "$dir/launch.txt.prev$n"
     echo "chargehand: resuming $tag on $impl; previous session in $dir/sid.prev$n" >&2
 fi
+printf '%s\n' "$brief" > "$dir/brief.txt"
 printf '%s\n' "$msg" > "$dir/launch.txt"
 printf '%s\n' "$req" > "$dir/session-request.json"
 oc_launch "$dir"

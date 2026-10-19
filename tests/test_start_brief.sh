@@ -102,6 +102,19 @@ test_resume_after_a_dead_parent() {
     assert_not_contains "no new worktree" "$msg" "git worktree add"
     assert_contains "prompt sent" "$(requests | jq -r 'select(.path == "/api/session/ses_new/prompt") | .body')" "state.md"
 }
+test_launch_records_the_brief_and_resume_refuses_another() {
+    start_api; setup_project
+    fixture POST /api/session '{"data": {"id": "ses_one"}}'
+    fixture POST /api/session/ses_one/prompt '{"data": {"id": "msg_1"}}'
+    bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md --no-push >/dev/null 2>&1
+    d="$HARNESS_STATE_DIR/demo/briefs/07a"
+    assert_eq "brief.txt" "$(cat "$d/brief.txt")" "docs/briefs/07a.md"
+    out="$(bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07b.md --resume --dry-run 2>&1)"
+    assert_eq "different brief refused" "$?" "2"
+    assert_contains "says both" "$out" "launched with docs/briefs/07a.md, not docs/briefs/07b.md"
+    out="$(bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md --resume --dry-run 2>&1)"
+    assert_eq "same brief resumes" "$?" "0"
+}
 test_resume_needs_a_session_and_plain_launch_points_to_resume() {
     start_api; setup_project
     out="$(bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md --resume --dry-run 2>&1)"
