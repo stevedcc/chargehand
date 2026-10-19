@@ -15,6 +15,20 @@ test_rules_name_no_test_runner() {
     assert_contains "launch message and rules disagree: stop" "$(cat "$HARNESS_ROOT/implementer/rules.md")" \
         "Where this file and your launch message disagree, stop and report; neither overrides the other."
 }
+test_permissions_deny_every_way_to_move_a_commit_or_branch() {
+    # Pattern semantics are unverified against a real OpenCode server: this checks the list only.
+    perms="$HARNESS_ROOT/skills/running-briefs/permissions.json"
+    for p in 'git commit --amend*' 'git commit* --amend*' 'git reset --soft*' 'git reset --mixed*' 'git reset HEAD~*' \
+             'git branch -f*' 'git branch --force*' 'git update-ref*' 'git checkout -B*' 'git switch -C*' \
+             'git clean*' 'git stash drop*' 'git stash clear*'; do
+        assert_eq "denied: $p" "$(jq -r --arg r "$p" '[.[] | select(.action == "shell" and .effect == "deny" and .resource == $r)] | length' "$perms")" "1"
+    done
+}
+test_rules_say_never_move_a_commit_once() {
+    out="$(tr '\n' ' ' < "$HARNESS_ROOT/implementer/rules.md" | sed 's/  */ /g')"   # wrapped lines
+    assert_contains "one rule" "$out" "never amend, reset, squash, rebase or otherwise move a commit or branch once made; fixes are new commits"
+    assert_not_contains "no exception" "$out" "you didn't just make"
+}
 test_rules_name_no_project() {
     out="$(grep -niE 'newblog|crawford|blog-framework|dotnet|tswap|kubectl|helm|mimo|kimi|glm|deepseek' "$HARNESS_ROOT/implementer/rules.md" "$HARNESS_ROOT/implementer/agents/"*.md)"
     assert_eq "no project, tool or model names" "$out" ""

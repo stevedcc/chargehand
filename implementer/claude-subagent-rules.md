@@ -35,8 +35,8 @@ apply instead**.
 - Commit on the worktree's branch only; **never push**, never change remotes.
 - **One commit per brief item**, message saying what was done and what was left undone, with an
   explicit path list (`git commit -F <msg> -- <paths>`); check `git diff --cached --stat` first.
-- **Never rewrite history:** no `rebase`, `reset --hard`, `commit --amend`, squash or force. Fixes
-  and review follow-ups are new commits on top.
+- **Never amend, reset, squash, rebase or otherwise move a commit or branch once made** (the same
+  rule as in `implementer/rules.md`); no force. Fixes and review follow-ups are new commits on top.
 - No merges unless the orchestrator tells you to; then `git merge --no-edit <ref>` (never rebase),
   check any `Resolved '<file>' using previous resolution` (rerere) by its diff, re-run the suites.
 - Don't delete branches or worktrees.

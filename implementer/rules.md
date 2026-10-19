@@ -21,8 +21,8 @@ exposes their own clone, the owner's read-only mirror, a private `/tmp` and the 
 are forbidden regardless of what the sandbox happens to allow:
 - `git push`, adding or changing remotes, or fetching/pulling from anything except `origin` (the
   owner's read-only mirror; `git pull --ff-only origin <target branch>` is required, see below);
-- rewriting history (`rebase`, `reset --hard`, `commit --amend` on commits you didn't just make, force
-  anything), or deleting branches and worktrees;
+- history changes: never amend, reset, squash, rebase or otherwise move a commit or branch once made;
+  fixes are new commits. Also no forcing anything, and no deleting branches or worktrees;
 - `sudo`{{FORBIDDEN_TOOLS}};
 - starting containers yourself (`podman run`, `docker run`) or stopping/removing containers that
   aren't Testcontainers instances from your own test run. The container socket is shared with the
