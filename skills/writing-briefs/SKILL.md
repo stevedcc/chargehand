@@ -41,4 +41,7 @@ Read AGENTS.md first. One commit per item, TDD, break-it-once, E2E twice at the 
   to <targets>" for the cheap pattern-applier subagent.
 
 ## Before handing over
-Commit and push the brief (`agent-sync.sh push`), then `running-briefs`.
+Commit the brief on its own branch, never on the target (the target must stay fast-forwardable
+for every running brief): `git switch -c brief/<tag> <target>`, commit only the brief file,
+`git switch <target>`. Then `running-briefs`; `start-brief.sh` refuses a brief that is not
+committed and pushes the branch.

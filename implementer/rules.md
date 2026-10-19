@@ -43,7 +43,8 @@ whose `origin` is the owner's **read-only** mirror. They have no write access to
 owner's.
 
 - **At the start of every brief:** `git pull --ff-only origin <the target branch your launch
-  message names>`. Commit locally only. Never push; there is nowhere you're allowed to push to.
+  message names>`, then `git fetch origin brief/<tag>`: your branch starts from `origin/brief/<tag>`,
+  whose first commit is the brief. Commit locally only. Never push; there is nowhere you're allowed to push to.
 - **Before reporting done:** stop the stacks you started, and only those (the project's stop
   command for your instances; never a "stop everything" variant, which stops other briefs'
   stacks). Processes you own can't be stopped by the orchestrator.

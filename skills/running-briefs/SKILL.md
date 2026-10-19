@@ -13,8 +13,9 @@ empty shell call and the parent waited an hour.
 ## Launch
 1. `bash scripts/models.sh --project <p>`: the allocation must print with no problems
    (per-brief changes: `--role role=provider/model`).
-2. `bash scripts/start-brief.sh --project <p> --tag <tag> --brief <path>` (pushes the target
-   branch first, pins models, sends the launch message, saves the session id). `--help` for the
+2. `bash scripts/start-brief.sh --project <p> --tag <tag> --brief <path>` (the brief must be
+   committed on `brief/<tag>` in the owner repo, see `writing-briefs`; pushes the target branch
+   and `brief/<tag>` first, pins models, sends the launch message, saves the session id). `--help` for the
    rest; `--dry-run` shows the message.
 
 ## Resume a dead brief

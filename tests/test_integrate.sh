@@ -23,6 +23,20 @@ test_clean_briefs() {
     out="$(bash "$SCRIPT" --project demo 2>&1)"; assert_eq "exit 0" "$?" "0"
     assert_contains "pair checked" "$out" "a + b"; assert_contains "clean" "$out" "clean"
 }
+# A brief is the first commit of its own branch (brief/<tag>); the agent's branch starts from it.
+brief_first() {   # TAG: owner commits the brief on brief/TAG, the mirror gets it, the agent branches from it
+    g -C "$W" switch -q -c "brief/$1" main; mkdir -p "$W/docs"; echo "# $1" > "$W/docs/$1.md"
+    g -C "$W" add docs; g -C "$W" commit -q -m "brief $1"; g -C "$W" push -q agent-upstream "brief/$1"; g -C "$W" switch -q main
+    g -C "$C" fetch -q origin "brief/$1"; g -C "$C" checkout -q -b "brief/$1" "origin/brief/$1"
+    echo "$1" > "$C/$1.txt"; g -C "$C" add "$1.txt"; g -C "$C" commit -q -m "$1 work"; g -C "$C" checkout -q main
+    mkdir -p "$HARNESS_STATE_DIR/demo/briefs/$1"; echo "ses_$1" > "$HARNESS_STATE_DIR/demo/briefs/$1/sid"
+}
+test_briefs_that_start_with_their_own_brief_commit() {
+    repos; brief_first a; brief_first b
+    out="$(bash "$SCRIPT" --project demo 2>&1)"; assert_eq "exit 0" "$?" "0"
+    assert_contains "both listed" "$out" "briefs: a b"; assert_eq "pair clean" "$(grep -cE 'a \+ b +clean' <<<"$out")" "1"
+    assert_not_contains "target has no brief commits" "$(g -C "$W" log --format=%s main)" "brief a"
+}
 test_conflicting_briefs() {
     repos; agent_branch a f.txt A; agent_branch b f.txt B
     out="$(bash "$SCRIPT" --project demo 2>&1)"; assert_eq "exit 1" "$?" "1"

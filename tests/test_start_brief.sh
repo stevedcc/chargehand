@@ -3,9 +3,15 @@ SCRIPT="$HARNESS_ROOT/skills/running-briefs/scripts/start-brief.sh"
 MODELS='{"subscriptions": {"go": {}, "km": {}},
          "roles": {"implementer": ["go/mimo-v2.6-pro"], "task_review": ["km/kimi-for-coding"],
                    "final_review": ["go/deepseek-v4-pro"], "low_level": ["go/mimo-v2.6-flash"]}}'
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+g() { git -c init.defaultBranch=main "$@"; }
+# The owner's repo: main, and the brief committed as the first commit of its own branch brief/07a.
 setup_project() {
-    mkdir -p "$HOME/repo/docs/briefs"; echo "# Brief" > "$HOME/repo/docs/briefs/07a.md"
-    write_project demo "{\"owner_worktree\": \"~/repo\", \"target_branch\": \"main\",
+    g init -q "$HOME/repo"; g -C "$HOME/repo" commit -q --allow-empty -m base
+    g -C "$HOME/repo" switch -q -c brief/07a; mkdir -p "$HOME/repo/docs/briefs"; echo "# Brief" > "$HOME/repo/docs/briefs/07a.md"
+    g -C "$HOME/repo" add docs; g -C "$HOME/repo" commit -q -m "brief 07a"; g -C "$HOME/repo" switch -q main
+    g init -q --bare "$TEST_TMP/mirror.git"; g -C "$HOME/repo" remote add agent-upstream "$TEST_TMP/mirror.git"
+    write_project demo "{\"owner_worktree\": \"~/repo\", \"target_branch\": \"main\", \"agent_clone\": \"$TEST_TMP/clone\",
       \"e2e_command\": \"dev/start.sh && dev/run-e2e.sh --instances {N} --first-instance {K}\",
       \"e2e_agent_instances\": [1, 20], \"e2e_instances_per_run\": 3, \"port_check\": \"ss -ltn on ports 5000-5199\"}"
     write_models "$MODELS"
@@ -26,7 +32,7 @@ test_launch_creates_session_and_state() {
     assert_contains "forbidden tool denied" "$req" '{"action":"shell","resource":"kubectl*","effect":"deny"}'
     msg="$(cat "$d/launch.txt")"
     assert_contains "brief named" "$msg" '`docs/briefs/07a.md`'
-    assert_contains "worktree" "$msg" "git worktree add .worktrees/07a -b brief/07a origin/main"
+    assert_contains "worktree" "$msg" "git worktree add .worktrees/07a -b brief/07a origin/brief/07a"
     assert_contains "instance range" "$msg" "within 1..20"
     assert_contains "models block" "$msg" '`km/kimi-for-coding`'
     assert_contains "extra text" "$msg" "Owner note."
@@ -125,5 +131,31 @@ test_a_pay_per_use_implementer_needs_allow_paid() {
     assert_eq "launched with the owner's yes" "$out" "ses_new"
     assert_contains "model pinned" "$(jq -c . "$HARNESS_STATE_DIR/demo/briefs/07a/session-request.json")" '"model":{"providerID":"api","id":"big-1"}'
     assert_contains "message says it was allowed" "$(cat "$HARNESS_STATE_DIR/demo/briefs/07a/launch.txt")" "allowed by the owner for this brief"
+}
+test_the_brief_must_be_committed_on_its_branch() {
+    start_api; setup_project
+    mkdir -p "$HOME/repo/docs/briefs"; echo "# Two" > "$HOME/repo/docs/briefs/07b.md"    # written, not committed anywhere
+    out="$(bash "$SCRIPT" --project demo --tag 07b --brief docs/briefs/07b.md --dry-run 2>&1)"
+    assert_eq "uncommitted brief refused" "$?" "2"
+    assert_contains "says where to commit it" "$out" "commit it on brief/07b"
+    g -C "$HOME/repo" add docs/briefs/07b.md; g -C "$HOME/repo" commit -q -m "brief 07b on main"
+    out="$(bash "$SCRIPT" --project demo --tag 07b --brief docs/briefs/07b.md --dry-run 2>&1)"
+    assert_eq "a brief already on the target is accepted" "$?" "0"
+}
+test_the_brief_branch_goes_to_the_mirror() {
+    start_api; setup_project
+    fixture POST /api/session '{"data": {"id": "ses_new"}}'
+    fixture POST /api/session/ses_new/prompt '{"data": {"id": "msg_1"}}'
+    bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md >/dev/null 2>&1
+    assert_eq "mirror has the brief branch with the brief commit" "$(g -C "$TEST_TMP/mirror.git" show -s --format=%s brief/07a 2>&1)" "brief 07a"
+    assert_eq "and the target" "$(g -C "$TEST_TMP/mirror.git" show -s --format=%s main 2>&1)" "base"
+}
+test_a_brief_on_the_target_gets_a_branch_at_launch() {
+    start_api; setup_project
+    mkdir -p "$HOME/repo/docs/briefs"; echo "# Two" > "$HOME/repo/docs/briefs/07b.md"; g -C "$HOME/repo" add docs/briefs/07b.md; g -C "$HOME/repo" commit -q -m "brief 07b on main"
+    fixture POST /api/session '{"data": {"id": "ses_new"}}'
+    fixture POST /api/session/ses_new/prompt '{"data": {"id": "msg_1"}}'
+    bash "$SCRIPT" --project demo --tag 07b --brief docs/briefs/07b.md >/dev/null 2>&1
+    assert_eq "branch created at the target and pushed" "$(g -C "$TEST_TMP/mirror.git" show -s --format=%s brief/07b 2>&1)" "brief 07b on main"
 }
 run_tests

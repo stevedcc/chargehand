@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Launch an OpenCode session for a brief: push the target branch to the agents' mirror, create the
+# Launch an OpenCode session for a brief: push the target branch and the brief branch (brief/<tag>,
+# which carries the brief as its first commit) to the agents' mirror, create the
 # session with the implementer model pinned and the permission rules, send the launch message,
 # and record the brief's state (sid, launch.txt) under ~/.local/state/chargehand.
 # Usage: start-brief.sh --project <name> --tag <tag> --brief <path in repo> [--title <text>]
@@ -29,7 +30,7 @@ while [ $# -gt 0 ]; do
         --dry-run) dry=1; shift ;;
         --resume) resume=1; shift ;;
         --allow-paid) paid=--allow-paid; shift ;;
-        -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown argument \"$1\"" ;;
     esac
 done
@@ -42,7 +43,10 @@ else
 fi
 repo="$(project_get "$project" owner_worktree)"
 target="$(project_get "$project" target_branch)"
-[ -f "$repo/$brief" ] || die "no brief $brief in $repo"
+# The brief is the first commit of its own branch brief/<tag>, never on the target: the launch
+# message makes the agent's worktree from origin/brief/<tag>. A brief already on the target is fine.
+git -C "$repo" cat-file -e "refs/heads/brief/$tag:$brief" 2>/dev/null || git -C "$repo" cat-file -e "refs/heads/$target:$brief" 2>/dev/null \
+    || die "no brief $brief committed in $repo: commit it on brief/$tag (created from $target), not as an uncommitted file"
 
 eff="$(models_effective "$project" "${roles[@]}")"
 problems="$(models_check "$eff" "$(bash "$HARNESS_ROOT/skills/configuring-chargehand/scripts/check-config.sh" --families)")"
@@ -83,7 +87,12 @@ req="$(jq -n --arg t "${title:-Brief $tag}" --arg p "${impl%%/*}" --arg m "${imp
 
 if [ "$dry" -eq 1 ]; then printf '%s\n\n%s\n' "$msg" "$req"; exit 0; fi
 
-[ "$push" -eq 0 ] || bash "$HARNESS_ROOT/skills/verifying-and-accepting/scripts/agent-sync.sh" --project "$project" push >&2
+# A brief that sits on the target gets its branch now, at the target.
+git -C "$repo" rev-parse -q --verify "refs/heads/brief/$tag" >/dev/null || git -C "$repo" branch "brief/$tag" "$target"
+if [ "$push" -eq 1 ]; then
+    bash "$HARNESS_ROOT/skills/verifying-and-accepting/scripts/agent-sync.sh" --project "$project" push >&2
+    git -C "$repo" push -q agent-upstream "+refs/heads/brief/$tag:refs/heads/brief/$tag" >&2
+fi
 mkdir -p "$dir"
 if [ "$resume" -eq 1 ]; then
     # Keep the dead session (cost, and a way back to it) and the message it was launched with.

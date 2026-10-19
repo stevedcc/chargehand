@@ -22,6 +22,14 @@ test_fetch_and_fast_forward_accept() {
     assert_eq "owner branch moved" "$(g -C "$W" log -1 --format=%s main)" "agent work"
     assert_eq "mirror updated" "$(g -C "$M" log -1 --format=%s main)" "agent work"
 }
+test_accept_fast_forwards_to_a_branch_that_carries_the_brief_commit() {
+    repos; g -C "$W" switch -q -c brief/x main; echo "# x" > "$W/brief.md"; g -C "$W" add brief.md; g -C "$W" commit -q -m "brief x"
+    g -C "$W" push -q agent-upstream brief/x; g -C "$W" switch -q main
+    g -C "$C" fetch -q origin brief/x; g -C "$C" checkout -q -b brief/x origin/brief/x; g -C "$C" commit -q --allow-empty -m "agent work"
+    sync fetch >/dev/null; fake_sudo 0; PATH="$TEST_TMP/bin:$PATH" sync verify agent/brief/x >/dev/null
+    sync accept brief/x >/dev/null 2>&1; assert_eq "accepted" "$?" "0"
+    assert_eq "target carries the brief commit and the work" "$(g -C "$W" log --format=%s main | head -3 | paste -sd,)" "agent work,brief x,base"
+}
 test_non_fast_forward_refused() {
     repos; g -C "$C" checkout -q -b brief/x; g -C "$C" commit -q --allow-empty -m "agent work"
     g -C "$W" commit -q --allow-empty -m "owner work"

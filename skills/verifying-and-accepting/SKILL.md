@@ -40,8 +40,9 @@ three mistakes this skill prevents.
 5. `writing-retros`.
 
 ## While any brief is running or waiting to be accepted
-**Commit nothing on the target branch.** Every commit makes the next accept a non-fast-forward
-and costs a merge round. For your own pending changes:
+**Commit nothing on the target branch**, not even a brief (it goes on `brief/<tag>`, and
+accept brings it along: the agent's branch starts with that commit). Every commit on the target
+makes the next accept a non-fast-forward and costs a merge round. For your own pending changes:
 ```
 git diff > /tmp/pending.patch && git checkout -- <files>   # set aside
 bash scripts/agent-sync.sh --project <p> accept brief/<tag>
