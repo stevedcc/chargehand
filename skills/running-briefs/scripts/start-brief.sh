@@ -46,10 +46,13 @@ else
 fi
 repo="$(project_get "$project" owner_worktree)"
 target="$(project_get "$project" target_branch)"
-# The brief is the first commit of its own branch brief/<tag>, never on the target: the launch
-# message makes the agent's worktree from origin/brief/<tag>. A brief already on the target is fine.
-git -C "$repo" cat-file -e "refs/heads/brief/$tag:$brief" 2>/dev/null || git -C "$repo" cat-file -e "refs/heads/$target:$brief" 2>/dev/null \
-    || die "no brief $brief committed in $repo: commit it on brief/$tag (created from $target), not as an uncommitted file"
+# The brief normally is the first commit of its own branch brief/<tag>: the launch
+# message makes the agent's worktree from origin/brief/<tag>. A brief only on the target is allowed, with a warning.
+if ! git -C "$repo" cat-file -e "refs/heads/brief/$tag:$brief" 2>/dev/null; then
+    git -C "$repo" cat-file -e "refs/heads/$target:$brief" 2>/dev/null \
+        || die "no brief $brief committed in $repo: commit it on brief/$tag (created from $target), not as an uncommitted file"
+    echo "chargehand: warning: brief $brief is on $target, not on its own brief/$tag commit; launching from the target" >&2
+fi
 
 eff="$(models_effective "$project" "${roles[@]}")"
 problems="$(models_check "$eff" "$(bash "$HARNESS_ROOT/skills/configuring-chargehand/scripts/check-config.sh" --families)")"

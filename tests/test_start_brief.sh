@@ -155,6 +155,16 @@ test_the_brief_must_be_committed_on_its_branch() {
     out="$(bash "$SCRIPT" --project demo --tag 07b --brief docs/briefs/07b.md --dry-run 2>&1)"
     assert_eq "a brief already on the target is accepted" "$?" "0"
 }
+test_a_brief_only_on_the_target_warns_and_the_text_stays_true() {
+    start_api; setup_project
+    mkdir -p "$HOME/repo/docs/briefs"; echo "# Two" > "$HOME/repo/docs/briefs/07b.md"; g -C "$HOME/repo" add docs/briefs/07b.md; g -C "$HOME/repo" commit -q -m "brief 07b on main"
+    bash "$SCRIPT" --project demo --tag 07b --brief docs/briefs/07b.md --dry-run >"$TEST_TMP/out" 2>"$TEST_TMP/err"
+    assert_contains "warns" "$(cat "$TEST_TMP/err")" "brief docs/briefs/07b.md is on main, not on its own brief/07b commit; launching from the target"
+    assert_contains "neutral text" "$(cat "$TEST_TMP/out")" "the brief is on origin/brief/07b"
+    assert_not_contains "no first-commit claim" "$(cat "$TEST_TMP/out")" "first commit"
+    bash "$SCRIPT" --project demo --tag 07a --brief docs/briefs/07a.md --dry-run >/dev/null 2>"$TEST_TMP/err"
+    assert_not_contains "no warning when the brief has its own commit" "$(cat "$TEST_TMP/err")" "not on its own"
+}
 test_the_brief_branch_goes_to_the_mirror() {
     start_api; setup_project
     fixture POST /api/session '{"data": {"id": "ses_new"}}'

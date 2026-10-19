@@ -40,6 +40,13 @@ test_refuses_an_uncommitted_brief_a_missing_instance_and_a_second_worktree() {
     out="$(bash "$SCRIPT" --project demo --tag 09a --brief docs/09a.md --first-instance 30 2>&1)"
     assert_eq "second worktree refused" "$?" "2"; assert_contains "says so" "$out" "already exists"
 }
+test_a_brief_only_on_the_target_warns() {
+    setup_claude; g -C "$W" branch -D brief/09a -q 2>/dev/null || g -C "$W" branch -D brief/09a >/dev/null
+    mkdir -p "$W/docs"; echo "# 09a" > "$W/docs/09a.md"; g -C "$W" add docs; g -C "$W" commit -q -m "brief on main"
+    out="$(bash "$SCRIPT" --project demo --tag 09a --brief docs/09a.md --first-instance 30 2>"$TEST_TMP/err")"
+    assert_contains "warns" "$(cat "$TEST_TMP/err")" "brief docs/09a.md is on main, not on its own brief/09a commit; launching from the target"
+    assert_not_contains "no first-commit claim" "$out" "first commit"
+}
 test_a_project_without_e2e_needs_no_instances() {
     setup_claude; write_project demo "{\"owner_worktree\": \"$W\", \"target_branch\": \"main\"}"
     out="$(bash "$SCRIPT" --project demo --tag 09a --brief docs/09a.md 2>/dev/null)"

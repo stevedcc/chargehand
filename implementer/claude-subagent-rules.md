@@ -22,7 +22,7 @@ apply instead**.
 
 ## Where you work
 
-- **Only in the worktree you were started in** (on `brief/<tag>`, whose first commit is the brief), plus `/tmp` for throwaway probes. Don't read, write
+- **Only in the worktree you were started in** (on `brief/<tag>`, which carries the brief), plus `/tmp` for throwaway probes. Don't read, write
   or delete anything elsewhere (other worktrees, the main checkout, `~`, other repositories), even
   if your permissions would allow it: you run with the owner's rights, so these limits are on you.
 - To learn a library's API, use what is inside the worktree: the build output, the existing code

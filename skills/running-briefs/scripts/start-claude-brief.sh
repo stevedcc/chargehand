@@ -26,8 +26,11 @@ done
 valid_name "$tag" || die "bad brief tag \"$tag\""
 repo="$(project_get "$project" owner_worktree)"
 target="$(project_get "$project" target_branch)"
-git -C "$repo" cat-file -e "refs/heads/brief/$tag:$brief" 2>/dev/null || git -C "$repo" cat-file -e "refs/heads/$target:$brief" 2>/dev/null \
-    || die "no brief $brief committed in $repo: commit it on brief/$tag (created from $target) first"
+if ! git -C "$repo" cat-file -e "refs/heads/brief/$tag:$brief" 2>/dev/null; then
+    git -C "$repo" cat-file -e "refs/heads/$target:$brief" 2>/dev/null \
+        || die "no brief $brief committed in $repo: commit it on brief/$tag (created from $target) first"
+    echo "chargehand: warning: brief $brief is on $target, not on its own brief/$tag commit; launching from the target" >&2
+fi
 git -C "$repo" rev-parse -q --verify "refs/heads/brief/$tag" >/dev/null || git -C "$repo" branch "brief/$tag" "$target"
 
 e2e="$(project_get "$project" e2e_command "")"
