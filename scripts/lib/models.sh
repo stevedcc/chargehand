@@ -22,7 +22,9 @@ _MODELS_JQ_DEFS='
   def live($s; $today): [ .[] | select(($s[prov].ends // "9999-12-31") >= $today) ];
 '
 
-# models_check EFFECTIVE [FAMILIES]: problems, one per line; no output means usable. FAMILIES maps
+# models_check EFFECTIVE [FAMILIES]: problems, one per line; no output means usable. Every live
+# reviewer model is compared with every live implementer model, fallbacks included, so a fallback
+# switch cannot put a model's own family on its review. FAMILIES maps
 # provider/model to the server's model family; without it the id's first word stands in.
 models_check() {
     local eff="$1" fams="${2:-}" today="${HARNESS_TODAY:-$(date +%F)}" roles
@@ -38,8 +40,11 @@ models_check() {
           | ($s[$m | prov].ends // empty) as $end | select($end < $today)
           | "role \($r): subscription \($m | prov) ended on \($end); put another model first" ),
         ( ["task_review", "final_review"][] as $r
-          | select((($e[$r][0] // "x/x") | fam) == (($e.implementer[0] // "y/y") | fam))
-          | "role \($r): \($e[$r][0]) is the same model family as the implementer" )
+          | ($e[$r] // [] | live($s; $today))[] as $m
+          | ($e.implementer // [] | live($s; $today) | to_entries[]) as $i
+          | select(($m | fam) == ($i.value | fam))
+          | if $i.key == 0 then "role \($r): \($m) is the same model family as the implementer"
+            else "role \($r): \($m) shares a family with implementer fallback \($i.value)" end )
     ' "$HARNESS_CONFIG_DIR/models.json"
 }
 
@@ -55,6 +60,7 @@ models_render() {
         line("this session and its implementer subagents"; "implementer"),
         line("per-task reviews and re-reviews"; "task_review"),
         line("final whole-branch review"; "final_review"),
+        "- If you switch to a fallback, the reviewer must still be from a different family than the model that wrote the code; if none is left, stop and report.",
         "- pattern-applier: pinned in its agent definition; do not override it.",
         "Allowed providers: " + ([$s | to_entries[] | select((.value.ends // "9999-12-31") >= $today) | "`\(.key)/`"] | join(", ")) + ". Never any other provider."
     ' "$HARNESS_CONFIG_DIR/models.json"

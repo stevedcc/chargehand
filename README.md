@@ -36,7 +36,8 @@ instead of upgrading the one you have:
   cost is still measured, per model, as a share of each plan, so you know what a feature costs.
 - **The right model for each job.** A strong model implements; task reviews and the final review
   go to models from a **different family** than the implementer (Chargehand refuses an allocation
-  where they match, so a model never grades its own work); repetitive mechanical edits go
+  where any reviewer model shares a family with any implementer model, fallbacks included, so a
+  model never grades its own work); repetitive mechanical edits go
   to a cheap, fast model. Change any role per project or per brief.
 - **Briefs that hold up when nobody is watching.** Each brief is a written plan with measured
   tests, a check that must fail when the fix is removed, and an independent review before you

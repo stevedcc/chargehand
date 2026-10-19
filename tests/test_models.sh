@@ -49,6 +49,29 @@ test_same_family_reviewer_refused() {
     assert_eq "exit 3" "$?" "3"
     assert_contains "says why" "$out" "role final_review: go/mimo-v2.6-pro is the same model family as the implementer"
 }
+test_fallback_sharing_a_reviewers_family_is_refused() {
+    write_models '{"subscriptions": {"z": {}, "m": {}}, "roles": {"implementer": ["z/glm-4.6", "m/kimi-k2"], "task_review": ["m/kimi-k2-thinking"], "final_review": ["z/other-1"], "low_level": ["z/glm-4.6"]}}'
+    write_project p '{}'
+    out="$(HARNESS_TODAY=2026-10-10 models_check "$(models_effective p)" '{}')"
+    assert_contains "names role, reviewer and fallback" "$out" "role task_review: m/kimi-k2-thinking shares a family with implementer fallback m/kimi-k2"
+    assert_not_contains "final_review is fine" "$out" "final_review"
+}
+test_reviewer_fallback_sharing_the_implementers_family_is_refused() {
+    write_models '{"subscriptions": {"z": {}, "m": {}}, "roles": {"implementer": ["z/glm-4.6"], "task_review": ["m/kimi-k2", "z/glm-4.6-flash"], "final_review": ["m/kimi-k2"], "low_level": ["z/glm-4.6"]}}'
+    write_project p '{}'
+    out="$(HARNESS_TODAY=2026-10-10 models_check "$(models_effective p)" '{}')"
+    assert_contains "names the reviewer fallback" "$out" "role task_review: z/glm-4.6-flash is the same model family as the implementer"
+}
+test_a_model_of_an_ended_subscription_is_not_compared() {
+    write_models '{"subscriptions": {"z": {}, "m": {"ends": "2026-01-01"}}, "roles": {"implementer": ["z/glm-4.6", "m/kimi-k2"], "task_review": ["z/other-1"], "final_review": ["z/other-1"], "low_level": ["z/glm-4.6"]}}'
+    write_project p '{}'
+    assert_eq "no problem" "$(HARNESS_TODAY=2026-10-10 models_check "$(models_effective p)" '{}')" ""
+}
+test_launch_message_keeps_the_reviewers_independent_on_a_fallback() {
+    write_models "$MODELS"; write_project p '{}'
+    out="$(HARNESS_TODAY=2026-10-10 models_render "$(models_effective p)")"
+    assert_contains "fallback rule" "$out" "If you switch to a fallback, the reviewer must still be from a different family than the model that wrote the code; if none is left, stop and report."
+}
 test_bad_override_syntax() {
     write_models "$MODELS"; write_project p '{}'
     out="$( (models_effective p implementer) 2>&1 )"; assert_eq "exit 2" "$?" "2"

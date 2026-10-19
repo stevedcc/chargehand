@@ -70,7 +70,7 @@ owner's.
 - **Models:** use exactly the models your launch message names, for exactly the roles it names.
   Never pick another model, version or provider to save cost or time. Fall back only as the launch
   message says, and record it. Reviewers always come from a different model family than the
-  implementer; the launch message's allocation already ensures that.
+  model that wrote the code; if a fallback would break that, stop and report.
   - **`pattern-applier`** (a subagent with its own pinned model): tasks the brief or the
     controller marks **"apply pattern from commit `<sha>`"**, i.e. repeating an already reviewed
     change in further locations. The first instance of a pattern is always designed and
