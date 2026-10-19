@@ -6,7 +6,42 @@
   },
   {
     "action": "shell",
-    "resource": "git remote*",
+    "resource": "git remote add*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git remote set-url*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git remote remove*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git remote rm*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git remote rename*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git remote prune*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git remote set-head*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "git remote set-branches*",
     "effect": "deny"
   },
   {

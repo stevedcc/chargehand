@@ -24,6 +24,13 @@ test_permissions_deny_every_way_to_move_a_commit_or_branch() {
         assert_eq "denied: $p" "$(jq -r --arg r "$p" '[.[] | select(.action == "shell" and .effect == "deny" and .resource == $r)] | length' "$perms")" "1"
     done
 }
+test_git_remote_is_denied_only_in_its_mutating_forms() {
+    perms="$HARNESS_ROOT/skills/running-briefs/permissions.json"
+    assert_eq "no blanket git remote deny" "$(jq -r '[.[] | select(.resource == "git remote*")] | length' "$perms")" "0"
+    for f in add set-url remove rm rename prune set-head set-branches; do
+        assert_eq "denied: git remote $f" "$(jq -r --arg r "git remote $f*" '[.[] | select(.action == "shell" and .effect == "deny" and .resource == $r)] | length' "$perms")" "1"
+    done
+}
 test_rules_say_never_move_a_commit_once() {
     out="$(tr '\n' ' ' < "$HARNESS_ROOT/implementer/rules.md" | sed 's/  */ /g')"   # wrapped lines
     assert_contains "one rule" "$out" "never amend, reset, squash, rebase or otherwise move a commit or branch once made; fixes are new commits"

@@ -138,7 +138,7 @@ Every other home directory does not exist, and `$HOME` is in memory. The server 
 appears on a command line.
 
 **The boundary is the agent user and the sandbox, not the session permissions.** OpenCode's
-permission rules (deny `sudo`, `git push`, `git remote` and any tool you list as forbidden; ask
+permission rules (deny `sudo`, `git push`, changes to git remotes and any tool you list as forbidden; ask
 before file access outside the clone and the toolchain) are guard rails that keep a confused agent
 on track. They don't stop a hostile one: the agent's tools run as the same user as the OpenCode
 server, so they can read its password and could answer their own permission requests, and a
