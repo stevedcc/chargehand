@@ -17,7 +17,7 @@ case "${1:-}" in
         oc_api GET /api/permission/request | jq -r '(.data // [])[] | "\(.sessionID) \(.id) \(.action) \(.resources | join(" "))"' | agent_text ;;
     pending)
         [ "$#" -eq 2 ] || die "usage: answer.sh pending <session>"
-        all="$(oc_api GET '/api/session?limit=1000')" || die "could not list the sessions"
+        all="$(oc_sessions)" || die "could not list the sessions"
         tree="$(jq -r --arg r "$2" '.data as $d | def kids($id): $d[] | select(.parentID == $id) | .id, kids(.id); $r, kids($r)' <<<"$all")"
         found="$( { oc_api GET /api/permission/request | jq -r --argjson t "$(jq -R . <<<"$tree" | jq -sc .)" \
                 '(.data // [])[] | select(.sessionID as $s | $t | index($s))

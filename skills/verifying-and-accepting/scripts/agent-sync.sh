@@ -9,12 +9,13 @@
 #                  inside the sandbox (never as you). Exit 0 passed; 10 the build or a suite failed or
 #                  timed out; 3 another verify of the project is running; 4 the sandbox could not
 #                  start; other: could not run (sudo refused, old launcher)
-#   accept [br]    fast-forward the target branch to agent/<br> (default the target), push the mirror
+#   accept [br]    fast-forward the target branch to agent/<br> (default the target), push the mirror,
+#                  delete your local brief/<tag> if it is now merged
 # Never build, test or run agent-authored code as yourself before accept. Reading diffs is safe.
 set -euo pipefail
 HARNESS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 . "$HARNESS_ROOT/scripts/lib/harness.sh"
-usage() { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; }
 [ "${1:-}" = --project ] && [ "$#" -ge 2 ] || { usage; exit 2; }
 project="$2"; shift 2
 cmd="${1:-}"; [ "$#" -gt 0 ] && shift
@@ -69,7 +70,15 @@ accept)
     # It is a fast-forward, so a failure now has another cause (untracked file in the way, index.lock ...): show git's text.
     merge_out="$(git merge --ff-only -q "$sha" 2>&1)" || die "merging $src into $target failed (it is a fast-forward; the cause is in $repo): $(agent_text <<<"$merge_out")"
     rm -f "$record"
-    git push -q agent-upstream "$target" ;;
+    git push -q agent-upstream "$target"
+    # The owner's own brief/<tag> (a review/<tag>-<sha7> ref comes from it) is merged now: delete it.
+    own="${src#agent/}"; own="$(sed -E 's|^review/(.+)-[0-9a-f]{7}$|brief/\1|' <<<"$own")"
+    case "$own" in brief/*)
+        if git rev-parse -q --verify "refs/heads/$own" >/dev/null && git merge-base --is-ancestor "$own" "$target"; then
+            if git branch -q -d "$own" 2>/dev/null; then echo "deleted local branch $own (merged into $target)"
+            else echo "kept local branch $own (merged into $target, but checked out in a worktree: remove that worktree, then delete it)"; fi
+        fi ;;
+    esac ;;
 *)
     usage; exit 2 ;;
 esac

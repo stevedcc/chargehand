@@ -44,6 +44,15 @@ test_pending_lists_permissions_and_forms_of_the_session_tree_only() {
     assert_not_contains "other tree left out" "$out" "per_2"
     assert_not_contains "no escape bytes" "$out" $'\e'
 }
+test_pending_warns_when_the_session_list_may_be_truncated() {
+    start_api
+    fixture GET /api/session '{"data": [{"id": "s1"}, {"id": "c1", "parentID": "s1"}]}'; fixture GET /api/permission/request '{"data": []}'
+    fixture GET /api/session/s1/form '{"data": []}'; fixture GET /api/session/c1/form '{"data": []}'
+    HARNESS_SESSION_LIMIT=2 bash "$SCRIPT" pending s1 >/dev/null 2>"$TEST_TMP/err"
+    assert_contains "warns" "$(cat "$TEST_TMP/err")" "session list may be truncated"
+    bash "$SCRIPT" pending s1 >/dev/null 2>"$TEST_TMP/err"
+    assert_eq "quiet under the limit" "$(cat "$TEST_TMP/err")" ""
+}
 test_pending_with_nothing_pending_says_so() {
     start_api; fixture GET /api/session '{"data": [{"id": "s1"}]}'; fixture GET /api/permission/request '{"data": []}'
     fixture GET /api/session/s1/form '{"data": []}'

@@ -41,6 +41,7 @@ the ref `start-review.sh` printed (also in `review-ref.txt`), `agent/review/<tag
    the watcher or verify with `run_in_background` and act when it exits. The harness wakes you.
 4. `bash scripts/agent-sync.sh --project <p> accept <br>`: fast-forward only, and only to
    the exact commit the last passing verify ran (it refuses if a later fetch moved the branch).
+   It then deletes your local `brief/<tag>` once it is merged (it says so).
    - "not a fast-forward": the agent merges `origin/<target>` into its branch (never rebase),
      then fetch, read the new diff, verify again.
    - "merging ... failed (it is a fast-forward ...)": the cause is in the owner's worktree (an

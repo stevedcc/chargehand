@@ -30,6 +30,32 @@ test_accept_fast_forwards_to_a_branch_that_carries_the_brief_commit() {
     sync accept brief/x >/dev/null 2>&1; assert_eq "accepted" "$?" "0"
     assert_eq "target carries the brief commit and the work" "$(g -C "$W" log --format=%s main | head -3 | paste -sd,)" "agent work,brief x,base"
 }
+# R5b: after accept the owner's own brief/<tag> branch is merged, so it goes.
+brief_branch_with_agent_work() {   # owner brief/x (brief commit, pushed), agent branch $1 from it plus work, verified
+    repos; g -C "$W" switch -q -c brief/x main; echo "# x" > "$W/brief.md"; g -C "$W" add brief.md; g -C "$W" commit -q -m "brief x"
+    g -C "$W" push -q agent-upstream brief/x; g -C "$W" switch -q main
+    g -C "$C" fetch -q origin brief/x; g -C "$C" checkout -q -b "$1" origin/brief/x; g -C "$C" commit -q --allow-empty -m "agent work"
+    sync fetch >/dev/null; fake_sudo 0; PATH="$TEST_TMP/bin:$PATH" sync verify "agent/$1" >/dev/null
+}
+test_accept_deletes_the_owners_merged_brief_branch() {
+    brief_branch_with_agent_work brief/x
+    out="$(sync accept brief/x 2>&1)"; assert_eq "accepted" "$?" "0"
+    assert_contains "says so" "$out" "deleted local branch brief/x"
+    assert_eq "branch gone" "$(g -C "$W" branch --list brief/x)" ""
+}
+test_accept_of_a_review_ref_deletes_the_owners_brief_branch() {
+    brief_branch_with_agent_work review/x-abc1234
+    out="$(sync accept review/x-abc1234 2>&1)"; assert_eq "accepted" "$?" "0"
+    assert_contains "says so" "$out" "deleted local branch brief/x"
+    assert_eq "branch gone" "$(g -C "$W" branch --list brief/x)" ""
+}
+test_accept_keeps_an_owner_branch_that_is_not_merged() {
+    brief_branch_with_agent_work brief/x
+    g -C "$W" switch -q brief/x; g -C "$W" commit -q --allow-empty -m "owner only"; g -C "$W" switch -q main
+    out="$(sync accept brief/x 2>&1)"; assert_eq "accepted" "$?" "0"
+    assert_not_contains "nothing deleted" "$out" "deleted local branch"
+    assert_eq "branch kept" "$(g -C "$W" branch --list brief/x | wc -l)" "1"
+}
 test_diff_is_the_three_dot_diff_without_control_characters() {
     repos; g -C "$C" checkout -q -b brief/x; printf 'safe\n\033[2J\033]0;pwned\007line\n' > "$C/f.txt"; g -C "$C" add f.txt; g -C "$C" commit -q -m "agent adds f"
     g -C "$W" commit -q --allow-empty -m "owner moved on"
