@@ -7,8 +7,8 @@ description: Use when launching an agent brief session, watching running briefs,
 
 ## Overview
 Launch with the scripts, watch the whole session tree in the background, and act on what the
-watcher reports. A parent session that looks busy proves nothing: a watcher that polls only the parent misses a
-dead subagent.
+watcher reports. A parent session that looks busy proves nothing: a watcher that polls only the
+parent misses a dead subagent.
 
 ## Launch
 1. `bash scripts/models.sh --project <p>`: the allocation must print with no problems
@@ -33,7 +33,8 @@ session never got its launch message, the launcher keeps it as `sid.failed-<n>` 
 
 ## Branches implemented outside the sandbox
 A Claude subagent implements in the owner's repo (rules: `implementer/claude-subagent-rules.md`).
-This implementer is trusted like you: its builds and tests run with your rights. Use it only on repos whose tests you would run yourself.
+This implementer is trusted like you: its builds and tests run with your rights. Use it only on
+repos whose tests you would run yourself.
 `bash scripts/start-claude-brief.sh --project <p> --tag <tag> --brief <path> --first-instance K`
 creates its worktree on `brief/<tag>` and prints the prompt to give to the Agent tool (stderr
 has the review base). Its reviews run sandboxed: `bash scripts/start-review.sh --project <p>
@@ -56,7 +57,8 @@ in the last 15 minutes (the watcher's stall threshold, `--stall-min`), restart t
 once, without asking, as often as needed until the brief finishes; mention the restart in one
 line. If nothing has moved for 15 minutes, treat it as exit 7 (stalled) instead.
 
-Never `sleep` or poll in a foreground call to wait for an agent, the watcher or verify; start the watcher or verify with `run_in_background` and act when it exits. The harness wakes you.
+Never `sleep` or poll in a foreground call to wait for an agent, the watcher or verify; start
+the watcher or verify with `run_in_background` and act when it exits. The harness wakes you.
 
 Only tags that are still running: drop a tag that has gone idle (exit 0, 9) or been accepted
 before restarting, or the watcher exits again at once on its idle. One watcher per brief: a second

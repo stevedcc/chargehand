@@ -28,10 +28,11 @@ three mistakes this skill prevents.
    a second one: wait, or restart only after the first is gone); 4 the sandbox could not start
    (Podman socket); anything else: it could not run (sudo refused, launcher or sudoers out of
    date: re-run setup). Only exit 0 allows accept.
-   Never `sleep` or poll in a foreground call to wait for an agent, the watcher or verify; start the watcher or verify with `run_in_background` and act when it exits. The harness wakes you.
    Its summary lines show that the agent's tests ran in isolation and what they reported. They
    are not independent proof: the tests are agent content. Verify catches honest mistakes;
    step 2 catches dishonest ones.
+   Never `sleep` or poll in a foreground call to wait for an agent, the watcher or verify; start
+   the watcher or verify with `run_in_background` and act when it exits. The harness wakes you.
 4. `bash scripts/agent-sync.sh --project <p> accept brief/<tag>`: fast-forward only, and only to
    the exact commit the last passing verify ran (it refuses if a later fetch moved the branch).
    - "not a fast-forward": the agent merges `origin/<target>` into its branch (never rebase),

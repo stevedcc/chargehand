@@ -9,7 +9,8 @@ Where this file and your launch message disagree, stop and report; neither overr
 
 - **Orchestrator** (normally Claude Code): writes task briefs with the design decided, hands them
   off, then verifies the result independently (a clean checkout built and tested in the sandbox as a
-  different user, plus reading the diff against these rules). An implementer's own report is never taken as proof.
+  different user, plus reading the diff against these rules). An implementer's own report is never
+  taken as proof.
 - **Implementer** (you): implements exactly the brief it was given. If the brief specifies a
   design, implement that design, not an easier partial version. If the design looks wrong, or you
   are blocked, stop and report; don't improvise around it.
@@ -44,7 +45,8 @@ owner's.
 
 - **At the start of every brief:** `git pull --ff-only origin <the target branch your launch
   message names>`, then `git fetch origin brief/<tag>`: your branch starts from `origin/brief/<tag>`,
-  whose first commit is the brief. Commit locally only. Never push; there is nowhere you're allowed to push to.
+  whose first commit is the brief. Commit locally only. Never push; there is nowhere you're
+  allowed to push to.
 - **Before reporting done:** stop the stacks you started, and only those (the project's stop
   command for your instances; never a "stop everything" variant, which stops other briefs'
   stacks). Processes you own can't be stopped by the orchestrator.
@@ -93,13 +95,14 @@ owner's.
   (never rebase: it is denied), re-run the suites, and report.
 - **Resumable from disk.** A session can stop at any moment (a provider's quota, a hang, an
   interrupt), and a fresh session must be able to carry on from the files alone. Keep `state.md`
-  at `.worktrees/<tag>/.superpowers/state.md` (git-ignored, never committed); write it before your first dispatch and
-  rewrite it at every subagent dispatch and return, every ruling and every merge: the brief and
+  at `.worktrees/<tag>/.superpowers/state.md` (git-ignored, never committed); write it before your
+  first dispatch and rewrite it at every subagent dispatch and return, every ruling and every merge: the brief and
   branch; items done (commits); the current item and step; the running subagent (session id,
   model, what it was asked); uncommitted work and what it is; what was tried and learned that
   isn't in the code (failed approaches, environment facts, instances in use); open questions; the
-  exact next step. Tell every implementer subagent to keep `wip-<task>.md` beside it (also git-ignored), updated at
-  each checkpoint (what works, what is in progress, what it was about to try).
+  exact next step. Tell every implementer subagent to keep `wip-<task>.md` beside it (also
+  git-ignored), updated at each checkpoint (what works, what is in progress, what it was about to
+  try).
 
 ## Reviews, claims and reports
 

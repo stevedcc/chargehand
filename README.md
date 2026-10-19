@@ -196,8 +196,8 @@ Once per machine; steps 4 and 5 again for each further project.
    for what it can't find and writes three files under `~/.config/chargehand/` (`examples/` has
    one of each):
    - `config.json`: the OpenCode server URL, how its password is supplied (environment variable,
-     file, command, or a secret manager's wrapper), the agent user's name, and tools agents must
-     never run. `"superpowers": false` opts out of step 4's Superpowers plugin;
+     file, command, or a secret manager's wrapper), the agent user's name, tools agents must
+     never run, and `records_dir` (where retros go). `"superpowers": false` opts out of step 4's Superpowers plugin;
    - `models.json`: your subscriptions, how each is priced, and which models do which job, with
      fallbacks;
    - `projects/<name>.json`: the project's paths, branches, build, test and E2E commands, and
