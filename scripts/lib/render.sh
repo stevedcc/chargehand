@@ -10,11 +10,13 @@ render_permissions() {
         + [$dirs[] | {action: "external_directory", resource: "\(.)/**", effect: "allow"}]' "$1"
 }
 
-# render_rules TEMPLATE: the implementer rules with the owner's forbidden tools filled in.
+# render_rules TEMPLATE [RULES_FILE]: the implementer rules with the owner's forbidden tools and
+# the installed rules path (default /usr/local/share/chargehand/rules.md) filled in.
 render_rules() {
-    local list="" t text
+    local list="" t text rules="${2:-/usr/local/share/chargehand/rules.md}"
     while IFS= read -r t; do [ -n "$t" ] && list+=", \`$t\`"; done < <(forbidden_tools)
     text="$(<"$1")"
+    text="${text//\{\{RULES_FILE\}\}/$rules}"
     printf '%s\n' "${text//\{\{FORBIDDEN_TOOLS\}\}/$list}"
 }
 

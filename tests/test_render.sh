@@ -29,6 +29,27 @@ test_rules_say_never_move_a_commit_once() {
     assert_contains "one rule" "$out" "never amend, reset, squash, rebase or otherwise move a commit or branch once made; fixes are new commits"
     assert_not_contains "no exception" "$out" "you didn't just make"
 }
+test_rules_path_is_filled_in_for_subagents() {
+    write_config '{}'
+    out="$(render_rules "$HARNESS_ROOT/implementer/rules.md" /usr/local/share/chargehand/rules.md)"
+    assert_contains "path given to subagents" "$(tr '\n' ' ' <<<"$out" | sed 's/  */ /g')" "gets the path of this rules file, \`/usr/local/share/chargehand/rules.md\`"
+    assert_not_contains "placeholder gone" "$out" "{{RULES_FILE}}"
+    assert_contains "default path" "$(render_rules "$HARNESS_ROOT/implementer/rules.md")" "\`/usr/local/share/chargehand/rules.md\`"
+}
+test_launch_rules_live_in_rules_md_and_the_messages_only_point_at_them() {
+    rules="$(tr '\n' ' ' < "$HARNESS_ROOT/implementer/rules.md" | sed 's/  */ /g')"
+    assert_contains "no re-grading" "$rules" "Never downgrade, re-grade or \"accept as limitation\""
+    assert_contains "no way to record it away" "$rules" "or stop and report it with evidence; the orchestrator decides"
+    assert_not_contains "no 'record why not'" "$rules" "record why not"
+    assert_contains "verbatim claims" "$rules" "quote totals verbatim"
+    assert_contains "no report files" "$rules" "never as files in the repository"
+    for f in launch resume; do
+        m="$(cat "$HARNESS_ROOT/skills/running-briefs/$f.md")"
+        assert_contains "$f points at the rules" "$m" "harness rules in your instructions"
+        assert_not_contains "$f carries no re-grading rule" "$m" "re-grade"
+        assert_not_contains "$f carries no amend rule" "$m" "amend"
+    done
+}
 test_rules_name_no_project() {
     out="$(grep -niE 'newblog|crawford|blog-framework|dotnet|tswap|kubectl|helm|mimo|kimi|glm|deepseek' "$HARNESS_ROOT/implementer/rules.md" "$HARNESS_ROOT/implementer/agents/"*.md)"
     assert_eq "no project, tool or model names" "$out" ""

@@ -53,6 +53,9 @@ owner's.
 - **Briefs with several mostly independent items:** use the superpowers
   `subagent-driven-development` skill. Each item is one task. Give each implementer subagent the
   brief's full text for its item plus the project's AGENTS.md, never a paraphrase.
+- **Every subagent you start** (implementer, reviewer, pattern-applier) gets the path of this rules
+  file, `{{RULES_FILE}}`, in its prompt with "read and follow it": a subagent session may not load
+  your instructions.
 - **Briefs whose items are tightly coupled** (one design across several files): implement inline
   in one session (`executing-plans`).
 - **The brief is the plan.** Don't rewrite it into a new plan with `writing-plans` (paraphrasing
@@ -97,6 +100,17 @@ owner's.
   exact next step. Tell every implementer subagent to keep `wip-<task>.md` beside it (also git-ignored), updated at
   each checkpoint (what works, what is in progress, what it was about to try).
 
+## Reviews, claims and reports
+
+- **Reviewer findings are not yours to grade.** Never downgrade, re-grade or "accept as limitation"
+  a Critical or Important finding, and never one that matches a test, measurement or piece of
+  evidence the brief requires; a skill's "re-grade by effect" step does not apply to you. Fix it,
+  or stop and report it with evidence; the orchestrator decides.
+- **Claims must match the output you ran:** quote totals verbatim in commits and reports.
+- **Run test suites yourself, in the foreground**, never through a subagent or a background
+  runner: a subagent's session can idle or die mid-run and take the output with it.
+- **Reports go in your final message**, never as files in the repository.
+
 ## Finishing a task
 
 Before saying a task is finished, an implementer must do all of these, in order:
@@ -104,8 +118,8 @@ Before saying a task is finished, an implementer must do all of these, in order:
 1. **Verify:** run the relevant suites after the last change and keep the output.
 2. **Independent review:** use the superpowers `requesting-code-review` skill to have a *separate*
    reviewer agent check the diff against the brief, the project's AGENTS.md and these rules. Give
-   the reviewer the brief itself, not your summary of it. Fix what it finds, or record why not
-   (`receiving-code-review`: never silently skip a finding).
+   the reviewer the brief itself, not your summary of it. Fix what it finds, or stop and report
+   with evidence; the orchestrator decides (`receiving-code-review`: never silently skip a finding).
 3. **Completion report:** end with a table listing **every** item in the brief:
 
    | Item | Status (done / partial / skipped) | Evidence (test names, command output, or reason) |
@@ -114,6 +128,6 @@ Before saying a task is finished, an implementer must do all of these, in order:
    "Done" without evidence counts as not done.
 
    Then a **Ledger** section: models used per role, any fallback with the error that caused it,
-   and every ruling with what it costs if wrong. Don't write a ledger file in the repo.
+   and every ruling with what it costs if wrong.
 
 The orchestrator still verifies independently afterwards; the report tells it where to look first.

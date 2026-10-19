@@ -132,7 +132,7 @@ grep -E '^HARNESS_(ETC|SHARE)=' "$LAUNCHER"
 
 step "10. implementer rules and subagents in $SHARE (root-owned, read-only to the agent)"
 install -d -o root -g root -m 0755 "$SHARE" "$SHARE/agents"
-render_rules "$HARNESS_ROOT/implementer/rules.md" > "$SHARE/rules.md.tmp"
+render_rules "$HARNESS_ROOT/implementer/rules.md" "$SHARE/rules.md" > "$SHARE/rules.md.tmp"
 install -o root -g root -m 0644 "$SHARE/rules.md.tmp" "$SHARE/rules.md"; rm -f "$SHARE/rules.md.tmp"
 install -o root -g root -m 0644 "$HARNESS_ROOT"/implementer/agents/*.md "$SHARE/agents/"
 ls -l "$SHARE" "$SHARE/agents"
