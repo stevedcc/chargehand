@@ -31,6 +31,11 @@ test_git_remote_is_denied_only_in_its_mutating_forms() {
         assert_eq "denied: git remote $f" "$(jq -r --arg r "git remote $f*" '[.[] | select(.action == "shell" and .effect == "deny" and .resource == $r)] | length' "$perms")" "1"
     done
 }
+test_rules_describe_the_orchestrators_verification_as_the_sandbox_does() {
+    out="$(tr '\n' ' ' < "$HARNESS_ROOT/implementer/rules.md" | sed 's/  */ /g')"
+    assert_contains "clean checkout in the sandbox" "$out" "a clean checkout built and tested in the sandbox as a different user, plus reading the diff"
+    assert_not_contains "no orchestrator running tests" "$out" "runs tests, probes the live stack"
+}
 test_rules_say_never_move_a_commit_once() {
     out="$(tr '\n' ' ' < "$HARNESS_ROOT/implementer/rules.md" | sed 's/  */ /g')"   # wrapped lines
     assert_contains "one rule" "$out" "never amend, reset, squash, rebase or otherwise move a commit or branch once made; fixes are new commits"

@@ -8,8 +8,8 @@ Where this file and your launch message disagree, stop and report; neither overr
 ## Roles
 
 - **Orchestrator** (normally Claude Code): writes task briefs with the design decided, hands them
-  off, then verifies the result independently (runs tests, probes the live stack, reads the diff
-  against these rules). An implementer's own report is never taken as proof.
+  off, then verifies the result independently (a clean checkout built and tested in the sandbox as a
+  different user, plus reading the diff against these rules). An implementer's own report is never taken as proof.
 - **Implementer** (you): implements exactly the brief it was given. If the brief specifies a
   design, implement that design, not an easier partial version. If the design looks wrong, or you
   are blocked, stop and report; don't improvise around it.
