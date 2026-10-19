@@ -18,11 +18,13 @@ test_rules_name_no_test_runner() {
 test_permissions_deny_every_way_to_move_a_commit_or_branch() {
     # Pattern semantics are unverified against a real OpenCode server: this checks the list only.
     perms="$HARNESS_ROOT/skills/running-briefs/permissions.json"
-    for p in 'git commit --amend*' 'git commit* --amend*' 'git reset --soft*' 'git reset --mixed*' 'git reset HEAD~*' \
+    for p in 'git commit --amend*' 'git commit* --amend*' 'git reset*' \
              'git branch -f*' 'git branch --force*' 'git update-ref*' 'git checkout -B*' 'git switch -C*' \
              'git clean*' 'git stash drop*' 'git stash clear*'; do
         assert_eq "denied: $p" "$(jq -r --arg r "$p" '[.[] | select(.action == "shell" and .effect == "deny" and .resource == $r)] | length' "$perms")" "1"
     done
+    assert_eq "no narrower reset rule left beside git reset*" "$(jq -r '[.[] | select(.resource | startswith("git reset "))] | length' "$perms")" "0"
+    assert_contains "rules point to git restore --staged" "$(cat "$HARNESS_ROOT/implementer/rules.md")" 'git restore --staged <file>' 
 }
 test_volume_flags_glued_to_their_path_are_denied() {
     # Unverified against a real server's matcher: the list is checked, not the matching.

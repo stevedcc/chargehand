@@ -23,7 +23,8 @@ are forbidden regardless of what the sandbox happens to allow:
 - `git push`, adding or changing remotes, or fetching/pulling from anything except `origin` (the
   owner's read-only mirror; `git pull --ff-only origin <target branch>` is required, see below);
 - history changes: never amend, reset, squash, rebase or otherwise move a commit or branch once made;
-  fixes are new commits. Also no forcing anything, and no deleting branches or worktrees;
+  fixes are new commits. Also no forcing anything, and no deleting branches or worktrees. Never run
+  `git reset` in any form (it can move the branch); unstage with `git restore --staged <file>`;
 - `sudo`{{FORBIDDEN_TOOLS}};
 - starting containers yourself (`podman run`, `docker run`) or stopping/removing containers that
   aren't Testcontainers instances from your own test run. The container socket is shared with the

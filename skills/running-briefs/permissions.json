@@ -51,7 +51,7 @@
   },
   {
     "action": "shell",
-    "resource": "git reset --hard*",
+    "resource": "git reset*",
     "effect": "deny"
   },
   {
@@ -62,21 +62,6 @@
   {
     "action": "shell",
     "resource": "git commit* --amend*",
-    "effect": "deny"
-  },
-  {
-    "action": "shell",
-    "resource": "git reset --soft*",
-    "effect": "deny"
-  },
-  {
-    "action": "shell",
-    "resource": "git reset --mixed*",
-    "effect": "deny"
-  },
-  {
-    "action": "shell",
-    "resource": "git reset HEAD~*",
     "effect": "deny"
   },
   {
