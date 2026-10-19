@@ -19,4 +19,16 @@ test_launcher_never_mounts_a_path_the_clone_names() {
     assert_not_contains "no bind of the clone's reported git directory" "$(cat "$sb")" '--bind "$common"'
     assert_contains "refuses a git directory outside the clone" "$(cat "$sb")" 'outside the clone'
 }
+test_clone_excludes_the_resume_notes_once() {
+    . "$HARNESS_ROOT/scripts/lib/render.sh"
+    mkdir -p "$TEST_TMP/clone/.git/info"
+    sh -c "$CLONE_EXCLUDE_SH" sh "$TEST_TMP/clone"; sh -c "$CLONE_EXCLUDE_SH" sh "$TEST_TMP/clone"
+    assert_eq "both patterns, once each" "$(cat "$TEST_TMP/clone/.git/info/exclude")" $'.superpowers/\nwip-*.md'
+    git init -q "$TEST_TMP/wt" && mkdir -p "$TEST_TMP/wt/.superpowers" && : > "$TEST_TMP/wt/.superpowers/state.md" && : > "$TEST_TMP/wt/wip-a.md"
+    sh -c "$CLONE_EXCLUDE_SH" sh "$TEST_TMP/wt"
+    assert_eq "git ignores both" "$(git -C "$TEST_TMP/wt" status --porcelain)" ""
+}
+test_setup_applies_the_exclude_to_the_clone_as_the_agent() {
+    assert_contains "as the agent" "$(grep -n 'CLONE_EXCLUDE_SH' "$SETUP")" 'as_agent sh -c "$CLONE_EXCLUDE_SH" sh "$clone"'
+}
 run_tests

@@ -76,3 +76,10 @@ render_sudoers() {
     printf 'Defaults!%s env_keep += "OPENCODE_SERVER_PASSWORD"\n' "$l"
     printf '%s ALL=(%s) NOPASSWD: %s\n' "$owner" "$agent" "$cmds"
 }
+
+# CLONE_EXCLUDE_SH: run as `sh -c "$CLONE_EXCLUDE_SH" sh <clone>` (setup runs it as the agent user).
+# Appends the patterns for the implementers' resume notes (.superpowers/state.md, wip-*.md) to the
+# clone's .git/info/exclude once, so they stay out of git for every project and worktree without
+# touching the project's .gitignore.
+CLONE_EXCLUDE_SH='f="$1/.git/info/exclude"; mkdir -p "$1/.git/info"
+for p in .superpowers/ "wip-*.md"; do grep -qxF -- "$p" "$f" 2>/dev/null || printf "%s\n" "$p" >> "$f"; done'

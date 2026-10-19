@@ -113,6 +113,7 @@ for name in "${projects[@]}"; do
     install -d -o "$AGENT" -g "$OWNER" -m 2750 "$clone"
     [ -d "$clone/.git" ] || as_agent git clone -q --branch "$target" "$mirror" "$clone"
     as_agent git -C "$clone" log --oneline -1
+    as_agent sh -c "$CLONE_EXCLUDE_SH" sh "$clone"   # resume notes stay out of git (.git/info/exclude)
     # Your repo gets a fetch-only remote for the agent's clone (agent-sync.sh fetches it safely).
     as_owner git -C "$repo" remote get-url agent &>/dev/null || as_owner git -C "$repo" remote add agent "$clone"
     as_owner git -C "$repo" remote set-url --push agent "DISABLED-never-push-into-agent-repos"
