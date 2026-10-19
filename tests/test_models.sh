@@ -114,6 +114,13 @@ test_pick_skips_a_provider_at_its_busy_limit() {
     assert_eq "falls back to the next model" "$out" "go/deepseek-v4-pro"
     assert_contains "says why" "$(cat "$TEST_TMP/err")" "z: 1 busy session(s), limit 1"
 }
+test_busy_count_warns_when_the_session_list_may_be_truncated() {
+    start_api; write_models "$PICK_MODELS"; write_project p '{}'
+    fixture GET /api/session "{\"data\": [$(pick_session s1 z "$(now_ms)")]}"
+    fixture GET /api/session/s1/message "$busy_msgs"
+    HARNESS_SESSION_LIMIT=1 pick task_review >/dev/null 2>"$TEST_TMP/err"
+    assert_contains "warns" "$(cat "$TEST_TMP/err")" "session list may be truncated"
+}
 test_pick_counts_idle_sessions_as_free() {
     start_api; write_models "$PICK_MODELS"; write_project p '{}'
     fixture GET /api/session "{\"data\": [$(pick_session s1 z "$(now_ms)")]}"

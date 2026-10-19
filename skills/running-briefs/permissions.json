@@ -231,6 +231,16 @@
   },
   {
     "action": "shell",
+    "resource": "docker run --rm *-v/*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "docker run --rm *-v.*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
     "resource": "docker run --rm *--volume*",
     "effect": "deny"
   },
@@ -277,6 +287,16 @@
   {
     "action": "shell",
     "resource": "podman run --rm * -v *",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm *-v/*",
+    "effect": "deny"
+  },
+  {
+    "action": "shell",
+    "resource": "podman run --rm *-v.*",
     "effect": "deny"
   },
   {

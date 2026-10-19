@@ -63,6 +63,20 @@ oc_launch() {
     echo "$sid"
 }
 
+# oc_sessions: the session list ({data: [...]}) on stdout, with oc_api's status. The server returns
+# at most HARNESS_SESSION_LIMIT (1000) sessions; a list of exactly that size may have cut off
+# children, so stderr says so (watching, busy counts and costs would miss them). oc_api's own stderr
+# is discarded, as the callers did.
+oc_sessions() {
+    local limit="${HARNESS_SESSION_LIMIT:-1000}" out rc=0
+    out="$(oc_api GET "/api/session?limit=$limit" 2>/dev/null)" || rc=$?
+    printf '%s\n' "$out"
+    if [ "$rc" -eq 0 ] && [ "$(jq '.data | length' <<<"$out" 2>/dev/null)" = "$limit" ]; then
+        echo "chargehand: session list may be truncated: the server returned the limit of $limit sessions, so briefs and subagents beyond it are not seen" >&2
+    fi
+    return "$rc"
+}
+
 # oc_newest_first: filter a message-list response ({data: [...]}) to newest-first by time.created
 # (stable: messages without a time keep their order). The watcher and models_busy read ".data[0]"
 # and "everything before the last prompt" and so must not depend on the order the server answers in

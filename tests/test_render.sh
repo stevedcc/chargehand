@@ -24,6 +24,13 @@ test_permissions_deny_every_way_to_move_a_commit_or_branch() {
         assert_eq "denied: $p" "$(jq -r --arg r "$p" '[.[] | select(.action == "shell" and .effect == "deny" and .resource == $r)] | length' "$perms")" "1"
     done
 }
+test_volume_flags_glued_to_their_path_are_denied() {
+    # Unverified against a real server's matcher: the list is checked, not the matching.
+    perms="$HARNESS_ROOT/skills/running-briefs/permissions.json"
+    for t in docker podman; do for f in '-v/' '-v.'; do
+        assert_eq "denied: $t run --rm *$f*" "$(jq -r --arg r "$t run --rm *$f*" '[.[] | select(.action == "shell" and .effect == "deny" and .resource == $r)] | length' "$perms")" "1"
+    done; done
+}
 test_git_remote_is_denied_only_in_its_mutating_forms() {
     perms="$HARNESS_ROOT/skills/running-briefs/permissions.json"
     assert_eq "no blanket git remote deny" "$(jq -r '[.[] | select(.resource == "git remote*")] | length' "$perms")" "0"

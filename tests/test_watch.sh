@@ -16,6 +16,12 @@ healthy() {
 }
 watch() { bash "$SCRIPT" --project demo "$@"; }
 
+test_a_possibly_truncated_session_list_is_said_once() {
+    healthy
+    out="$(HARNESS_SESSION_LIMIT=4 WATCH_MAX_SECONDS=1 WATCH_POLL_SECONDS=0 watch 07a 2>&1)"
+    assert_eq "one warning" "$(grep -c 'session list may be truncated' <<<"$out")" "1"
+    out="$(watch 07a 2>&1)"; assert_not_contains "no warning below the limit" "$out" "truncated"
+}
 test_timeout_when_healthy() {
     healthy; out="$(watch 07a)"; assert_eq "exit 1" "$?" "1"; assert_contains "says so" "$out" "TIMEOUT"
 }

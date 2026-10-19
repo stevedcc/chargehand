@@ -95,4 +95,16 @@ test_wrapper_lock_wait_is_configurable_and_times_out_with_75() {
     wait "$holder"
     assert_eq "works when free" "$(HARNESS_API_LOCK_WAIT=1 oc_api GET /api/agent)" '{"data": []}'
 }
+test_session_list_warns_when_it_may_be_truncated() {
+    start_api; fixture GET /api/session '{"data": [{"id": "s1"}, {"id": "s2"}]}'
+    out="$(HARNESS_SESSION_LIMIT=2 oc_sessions 2>"$TEST_TMP/err")"
+    assert_eq "body returned" "$(jq -r '.data | length' <<<"$out")" "2"
+    assert_contains "warns on stderr" "$(cat "$TEST_TMP/err")" "session list may be truncated"
+    assert_eq "path carries the limit" "$(requests | jq -r '.query' | tail -1)" "limit=2"
+    out="$(HARNESS_SESSION_LIMIT=3 oc_sessions 2>"$TEST_TMP/err")"
+    assert_eq "no warning under the limit" "$(cat "$TEST_TMP/err")" ""
+}
+test_session_list_keeps_the_status_of_a_failed_call() {
+    start_api; oc_sessions >/dev/null 2>&1; assert_eq "404 is curl's 22" "$?" "22"
+}
 run_tests

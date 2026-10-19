@@ -84,7 +84,7 @@ models_busy() {
         oc_api GET "/api/session/$s/message" 2>/dev/null | oc_newest_first | jq -e '.data | (map(.type) | index("user")) as $u
             | .[0:$u] | (map(select(.type == "idle")) | length == 0)
               and ((map(select(.type == "assistant")) | first // {} | .error) == null)' >/dev/null && n=$((n + 1))
-    done < <(oc_api GET '/api/session?limit=1000' 2>/dev/null | jq -r --arg p "$provider" --argjson t "$since" \
+    done < <(oc_sessions | jq -r --arg p "$provider" --argjson t "$since" \
         '.data[]? | select(.model.providerID == $p and (.time.updated // 0) >= $t) | .id')
     echo "$n"
 }

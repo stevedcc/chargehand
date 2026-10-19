@@ -23,7 +23,7 @@ dir="$(brief_dir "$project" "$tag")"; [ -s "$dir/sid" ] || die "no session for b
 # A resumed brief (resume after a quota stop) keeps its earlier sessions in sid.prev*, a launch
 # whose message failed in sid.failed-*; all count.
 # The session list easily exceeds the 128 KB argument limit, so it goes to jq on stdin.
-oc_api GET '/api/session?limit=1000' \
+oc_sessions \
 | jq --slurpfile m "$HARNESS_CONFIG_DIR/models.json" --argjson roots "$(cat "$dir/sid" "$dir"/sid.prev* "$dir"/sid.failed-* 2>/dev/null | jq -R . | jq -s .)" --arg wt "/.worktrees/$tag" '
     def sum(f): map(f) | add // 0;
     def r2: if . == null then null else (. * 100 | round) / 100 end;

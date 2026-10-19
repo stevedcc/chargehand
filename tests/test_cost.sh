@@ -26,6 +26,12 @@ test_three_pricing_forms() {
     assert_eq "total" "$(jq .total_usd "$HARNESS_STATE_DIR/demo/briefs/03m/cost.json")" "1.57"
     assert_contains "table names the form" "$out" "metered"
 }
+test_cost_warns_when_the_session_list_may_be_truncated() {
+    start_api; brief 03m s1; write_models '{"subscriptions": {"xm": {"pricing": {"per_mtok": 1}}}, "roles": {}}'
+    fixture GET /api/session "{\"data\": [$(session s1 '' xm m 0 1000000 0 0 0)]}"
+    HARNESS_SESSION_LIMIT=1 bash "$SCRIPT" --project demo --tag 03m 2>"$TEST_TMP/err" >/dev/null
+    assert_contains "warns" "$(cat "$TEST_TMP/err")" "session list may be truncated"
+}
 test_reasoning_counts_as_output() {
     start_api; brief 03m s1
     write_models '{"subscriptions": {"km": {"pricing": {"per_mtok": {"output": 1}}}}, "roles": {}}'

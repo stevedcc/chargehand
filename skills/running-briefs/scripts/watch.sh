@@ -52,11 +52,12 @@ done
 for tag in "${tags[@]}"; do echo "$$" > "${dirs[$tag]}/watch.pid"; done
 cleanup() { for tag in "${tags[@]}"; do [ "$(cat "${dirs[$tag]}/watch.pid" 2>/dev/null)" != "$$" ] || rm -f "${dirs[$tag]}/watch.pid"; done; }
 trap cleanup EXIT
-start=$(date +%s); misses=0 lockmisses=0
+start=$(date +%s); misses=0 lockmisses=0 trunc_said=; trunc_file="${dirs[${tags[0]}]}/session-list.err"
 say() { echo "[$(( ($(date +%s) - start) / 60 )) min] $*" | agent_text; }   # messages quote agent text
 
 while :; do
-    all="$(oc_api GET '/api/session?limit=1000' 2>/dev/null)" && listrc=0 || listrc=$?
+    all="$(oc_sessions 2>"$trunc_file")" && listrc=0 || listrc=$?
+    if [ -s "$trunc_file" ] && [ -z "$trunc_said" ]; then trunc_said=1; say "$(head -1 "$trunc_file")"; fi
     if [ "$listrc" -eq 75 ]; then
         # Another script holds the API lock (not a server problem): try again next poll.
         lockmisses=$((lockmisses + 1)); say "API lock busy ($lockmisses)"
