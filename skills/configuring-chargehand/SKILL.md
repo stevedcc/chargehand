@@ -30,7 +30,8 @@ Every key is shown in `examples/` at the plugin root. Roles never go in `config.
    providers are flat-rate subscriptions and set `"pay_per_use": true` on every other one: the
    scripts never pick such a model unless the owner says so (`--allow-paid`). Then fill each role
    by offering that list's models. Reviewers must come from a different family than the
-   implementer. `pricing` is optional at first; costing shows "no rate" until a retro measures it.
+   implementer (with the server down the check falls back to the first word of the model id, so
+   it can pass or fail wrongly until the server answers). `pricing` is optional at first; costing shows "no rate" until a retro measures it.
 4. **Project values from the repo:** propose `repo`, `target_branch`
    (`git -C <repo> branch --show-current`), test and E2E commands (read its README/AGENTS.md),
    toolchain paths. Ask only for what you couldn't find.

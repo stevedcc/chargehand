@@ -72,6 +72,10 @@ test_launch_message_keeps_the_reviewers_independent_on_a_fallback() {
     out="$(HARNESS_TODAY=2026-10-10 models_render "$(models_effective p)")"
     assert_contains "fallback rule" "$out" "If you switch to a fallback, the reviewer must still be from a different family than the model that wrote the code; if none is left, stop and report."
 }
+test_the_example_passes_its_own_check_without_a_server() {
+    cp "$HARNESS_ROOT/examples/models.json" "$HARNESS_CONFIG_DIR/models.json"; write_project p '{}'
+    assert_eq "no problem with families from the id prefix" "$(HARNESS_TODAY=2026-10-10 models_check "$(models_effective p)" '{}')" ""
+}
 test_bad_override_syntax() {
     write_models "$MODELS"; write_project p '{}'
     out="$( (models_effective p implementer) 2>&1 )"; assert_eq "exit 2" "$?" "2"

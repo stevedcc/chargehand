@@ -1,15 +1,15 @@
 {
   "subscriptions": {
     "provider-a": {
-      "pricing": { "metered": { "plan_usd": 40, "model_limit_usd": { "model-x-pro": 60, "model-x-flash": 120 } } }
+      "pricing": { "metered": { "plan_usd": 40, "model_limit_usd": { "beta-pro": 60, "beta-flash": 120 } } }
     },
     "provider-b": { "pay_per_use": true, "pricing": { "per_mtok": { "input": 0.5, "output": 2.0, "cache_read": 0.05 } } },
     "provider-c": { "pricing": { "per_mtok": 0.03 }, "ends": "2026-12-31" }
   },
   "roles": {
-    "implementer":  ["provider-c/model-y-pro", "provider-a/model-x-pro"],
-    "task_review":  ["provider-a/model-w-pro", "provider-b/model-z"],
-    "final_review": ["provider-a/model-w-pro"],
-    "low_level":    ["provider-a/model-x-flash"]
+    "implementer":  ["provider-c/alpha-pro", "provider-a/beta-pro"],
+    "task_review":  ["provider-a/gamma-pro", "provider-b/delta-z"],
+    "final_review": ["provider-a/gamma-pro"],
+    "low_level":    ["provider-a/beta-flash"]
   }
 }
