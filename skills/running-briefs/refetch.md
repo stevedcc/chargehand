@@ -1,0 +1,1 @@
+The branch `{BRANCH}` has a new tip after the implementer's fixes. In the agent clone you started in, run `git fetch origin "+{BRANCH}:refs/heads/{REF}"` and reply with that command's output. Review nothing and change nothing else: no worktree, no checkout, no edit, no commit.

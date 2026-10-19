@@ -11,15 +11,21 @@ sandbox verifies it as the agent user, and accept is a fast-forward. Running the
 yourself, trusting the report, and committing on the target branch while a brief waits are the
 three mistakes this skill prevents.
 
+## Which branch
+OpenCode implementer: `agent/brief/<tag>`, accept `brief/<tag>`. Implemented outside the sandbox:
+the ref `start-review.sh` printed (also in `review-ref.txt`), `agent/review/<tag>-<sha7>`, accept
+`review/<tag>-<sha7>`; never guess it, and after fixes use the ref `--refetch` printed. Below,
+`<ref>` is the `agent/...` name and `<br>` the name without `agent/`.
+
 ## Steps
 1. `bash scripts/agent-sync.sh --project <p> fetch` (upload-pack only; safe).
 2. **Read the diff against the brief, not against the report. This is the security boundary**:
-   `bash scripts/agent-sync.sh --project <p> diff agent/brief/<tag>` (the three-dot diff against
+   `bash scripts/agent-sync.sh --project <p> diff <ref>` (the three-dot diff against
    the target, with control characters stripped). Every item done as specified; every test the brief
    requires exists and asserts the outcome (not presence); no assertion weakened; nothing outside
    the brief's scope; nothing in the build, test project, scripts or test helpers that decides
    its own result (a test runner that prints "Passed" or exits 0 regardless is a forged verify).
-3. `bash scripts/agent-sync.sh --project <p> verify agent/brief/<tag>` with
+3. `bash scripts/agent-sync.sh --project <p> verify <ref>` with
    `run_in_background` and **`timeout: 7200000`** (the default 30-minute limit kills a verify that
    legitimately runs E2E): a clean checkout built and tested **as the agent user, in the sandbox**.
    Each build, suite and E2E command is also limited by the project's `verify_timeout_min`
@@ -33,7 +39,7 @@ three mistakes this skill prevents.
    step 2 catches dishonest ones.
    Never `sleep` or poll in a foreground call to wait for an agent, the watcher or verify; start
    the watcher or verify with `run_in_background` and act when it exits. The harness wakes you.
-4. `bash scripts/agent-sync.sh --project <p> accept brief/<tag>`: fast-forward only, and only to
+4. `bash scripts/agent-sync.sh --project <p> accept <br>`: fast-forward only, and only to
    the exact commit the last passing verify ran (it refuses if a later fetch moved the branch).
    - "not a fast-forward": the agent merges `origin/<target>` into its branch (never rebase),
      then fetch, read the new diff, verify again.
@@ -48,7 +54,7 @@ accept brings it along: the agent's branch starts with that commit). Every commi
 makes the next accept a non-fast-forward and costs a merge round. For your own pending changes:
 ```
 git diff HEAD --binary > <scratch>/pending.patch && git checkout HEAD -- <files>   # set aside, staged or not
-bash scripts/agent-sync.sh --project <p> accept brief/<tag>
+bash scripts/agent-sync.sh --project <p> accept <br>
 git apply <scratch>/pending.patch                                                  # then commit
 ```
 `<scratch>` is any file location outside the repo. Never `git stash` for this: the stash is shared

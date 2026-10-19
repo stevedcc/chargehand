@@ -40,8 +40,14 @@ creates its worktree on `brief/<tag>` and prints the prompt to give to the Agent
 has the review base). Its reviews run sandboxed: `bash scripts/start-review.sh --project <p>
 --tag <tag> --branch brief/<tag> --base <sha> --role task_review|final_review --brief <path>
 [--extra "<what to judge in particular>"]` (`--prompt <file>` for your own prompt; `--help`). The
-review session fetches the branch into the agent clone, so `agent-sync.sh fetch`/`verify` then
-work as usual.
+review session fetches the tip into the agent clone as `review/<tag>-<sha7>`; the script prints
+`verify and accept: review/<tag>-<sha7>` on stderr and writes it to `review-ref.txt` in the
+`<tag>-review` state folder. Use that name, never a guess: `agent-sync.sh fetch`, `diff` and `verify`
+take `agent/review/<tag>-<sha7>`, `accept` takes `review/<tag>-<sha7>`. (An OpenCode implementer's
+branch is `agent/brief/<tag>` / `accept brief/<tag>`.) After the implementer fixes findings, never
+start a second review for the new tip: run `bash scripts/start-review.sh --refetch --project <p>
+--tag <tag> --branch brief/<tag>`, which pushes it and has the existing review session only fetch
+it, and use the new ref it prints (the old one is stale).
 
 **Busy limits:** a subscription with `"max_busy_sessions"` in models.json (Z.ai: 1, its 5-hour
 window can't take two heavy sessions) is skipped while that many of its sessions are busy;

@@ -56,11 +56,13 @@ test_default_prompt_is_the_shipped_review_template() {
     start_api; setup_review feat/x
     fixture POST /api/session '{"data": {"id": "ses_r"}}'
     fixture POST /api/session/ses_r/prompt '{"data": {"id": "m1"}}'
-    out="$(bash "$SCRIPT" --project demo --tag 07a --branch feat/x --base abc123 --role final_review --brief docs/briefs/07a.md --extra "Judge the cache key in particular." 2>&1)"
+    out="$(bash "$SCRIPT" --project demo --tag 07a --branch feat/x --base abc123 --role final_review --brief docs/briefs/07a.md --extra "Judge the cache key in particular." 2>/dev/null)"
     assert_eq "starts without --prompt" "$out" "go/deepseek-v4-pro ses_r"
     msg="$(cat "$HARNESS_STATE_DIR/demo/briefs/07a-review/launch.txt")"
-    assert_contains "fetches into a local review branch" "$msg" '`git fetch origin "+feat/x:refs/heads/$R"`'
-    assert_contains "worktree" "$msg" 'git worktree add ".worktrees/$R" "$R"'
+    ref="review/07a-$(git -C "$HOME/repo" rev-parse --short=7 feat/x)"
+    assert_contains "fetches into the deterministic review branch" "$msg" "\`git fetch origin \"+feat/x:refs/heads/$ref\"\`"
+    assert_contains "worktree from it" "$msg" "git worktree add \".worktrees/$ref\" \"$ref\""
+    assert_contains "reuses a worktree of the same commit" "$msg" "already exists"
     assert_contains "diff from the base" "$msg" "git diff abc123..HEAD"
     assert_contains "the brief" "$msg" "docs/briefs/07a.md"
     assert_contains "extra slot filled" "$msg" "Judge the cache key in particular."
@@ -68,6 +70,38 @@ test_default_prompt_is_the_shipped_review_template() {
     assert_contains "grades" "$msg" "Critical, Important or Minor"
     assert_contains "verdict" "$msg" "Ready to merge: yes/no"
     for ph in TAG BRANCH BASE BRIEF EXTRA; do assert_not_contains "no {$ph} left" "$msg" "{$ph}"; done
+}
+test_review_ref_is_printed_recorded_and_in_the_prompt() {
+    start_api; setup_review feat/x
+    fixture POST /api/session '{"data": {"id": "ses_r"}}'
+    fixture POST /api/session/ses_r/prompt '{"data": {"id": "m1"}}'
+    printf 'Fetch {REF} from {BRANCH}.\n' > "$TEST_TMP/prompt.md"
+    ref="review/07a-$(git -C "$HOME/repo" rev-parse --short=7 feat/x)"
+    out="$(bash "$SCRIPT" --project demo --tag 07a --branch feat/x --base abc123 --role task_review --prompt "$TEST_TMP/prompt.md" 2>&1 >/dev/null)"
+    assert_contains "stderr says what to verify and accept" "$out" "verify and accept: $ref"
+    d="$HARNESS_STATE_DIR/demo/briefs/07a-review"
+    assert_eq "recorded" "$(cat "$d/review-ref.txt")" "$ref"
+    assert_eq "prompt names the ref" "$(cat "$d/launch.txt")" "Fetch $ref from feat/x."
+    assert_eq "mirror has the branch at that tip" "$(git -C "$TEST_TMP/mirror.git" rev-parse feat/x)" "$(git -C "$HOME/repo" rev-parse feat/x)"
+}
+test_refetch_sends_a_fetch_only_prompt_to_the_existing_session() {
+    start_api; setup_review feat/x
+    d="$HARNESS_STATE_DIR/demo/briefs/07a-review"; mkdir -p "$d"; echo ses_r > "$d/sid"
+    fixture POST /api/session/ses_r/prompt '{"data": {"id": "m2"}}'
+    git -C "$HOME/repo" commit -q --allow-empty -m fix
+    ref="review/07a-$(git -C "$HOME/repo" rev-parse --short=7 feat/x)"
+    out="$(bash "$SCRIPT" --refetch --project demo --tag 07a --branch feat/x 2>&1)"
+    assert_eq "ok" "$?" "0"
+    assert_contains "prints the new ref" "$out" "verify and accept: $ref"
+    assert_eq "recorded" "$(cat "$d/review-ref.txt")" "$ref"
+    assert_eq "no new session" "$(requests | jq -r 'select(.path == "/api/session" and .method == "POST") | .path' | wc -l)" "0"
+    body="$(requests | jq -r 'select(.path == "/api/session/ses_r/prompt") | .body | fromjson | .text')"
+    assert_contains "fetches the new tip" "$body" "git fetch origin \"+feat/x:refs/heads/$ref\""
+    assert_contains "fetch only" "$body" "Review nothing and change nothing else"
+    assert_eq "sid unchanged" "$(cat "$d/sid")" "ses_r"
+    assert_eq "mirror at the new tip" "$(git -C "$TEST_TMP/mirror.git" rev-parse feat/x)" "$(git -C "$HOME/repo" rev-parse feat/x)"
+    out="$(bash "$SCRIPT" --refetch --project demo --tag 09z --branch feat/x 2>&1)"
+    assert_eq "no session: refused" "$?" "2"; assert_contains "says why" "$out" "no review session"
 }
 test_default_prompt_needs_the_brief_path() {
     start_api; setup_review feat/x
