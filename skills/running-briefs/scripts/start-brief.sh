@@ -61,7 +61,8 @@ agent_home="$(getent passwd "$agent" | cut -d: -f6 || true)"; agent_home="${agen
 mapfile -t tool_dirs < <(jq -r '(.toolchain.ro // []) + (.toolchain.rw // []) | .[]' "$(project_file "$project")" \
     | sed "s|^~/|$agent_home/|"; echo "$agent_home/.cache/opencode")
 
-impl="$(jq -r '.implementer[0]' <<<"$eff")"
+# A subscription at its "max_busy_sessions" (e.g. Z.ai's 5-hour window) passes to the next model.
+if [ "$dry" -eq 1 ]; then impl="$(jq -r '.implementer[0]' <<<"$eff")"; else impl="$(models_pick "$eff" implementer)"; fi
 req="$(jq -n --arg t "${title:-Brief $tag}" --arg p "${impl%%/*}" --arg m "${impl#*/}" \
         --argjson perms "$(render_permissions "$here/../permissions.json" "${tool_dirs[@]}")" \
         '{title: $t, agent: "build", model: {providerID: $p, id: $m}, permissions: $perms}')"

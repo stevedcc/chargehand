@@ -17,10 +17,25 @@ empty shell call and the parent waited an hour.
    branch first, pins models, sends the launch message, saves the session id). `--help` for the
    rest; `--dry-run` shows the message.
 
+## Branches implemented outside the sandbox
+A Claude subagent implements in the owner's repo (rules: `implementer/claude-subagent-rules.md`).
+Its reviews run sandboxed: `bash scripts/start-review.sh --project <p> --tag <tag> --branch <b>
+--base <sha> --role task_review|final_review --prompt <file>` (`--help`). The review session
+fetches the branch into the agent clone, so `agent-sync.sh fetch`/`verify` then work as usual.
+
+**Busy limits:** a subscription with `"max_busy_sessions"` in models.json (Z.ai: 1, its 5-hour
+window can't take two heavy sessions) is skipped while that many of its sessions are busy;
+start-brief.sh and start-review.sh take the role's next model and say so.
+
 ## Watch
 Run `bash scripts/watch.sh --project <p> <tag>...` with Claude Code's **`run_in_background`**
 and **`timeout: 7200000`** (the default background limit is 30 min; the watcher runs 115), never with `&` (a `&` job is invisible to the harness and dies with the shell). It covers every
 running brief and every subagent below it. Restart it after every exit you have handled.
+Claude Code stops background commands at 2 hours (the maximum `timeout`) and then advises not to
+restart; for a watcher, ignore that advice. If a brief's latest session or subagent has activity
+in the last 20 minutes, restart the watcher at once, without asking, as often as needed until the
+brief finishes; mention the restart in one line. If nothing has moved for 20 minutes, treat it as
+exit 7 (stalled) instead.
 
 | Exit | Do |
 |---|---|
@@ -29,11 +44,18 @@ running brief and every subagent below it. Restart it after every exit you have 
 | 4 permission | read the resource; `bash scripts/answer.sh permission <s> <id> once\|reject "<why>"`. Never allow paths outside the clone and `/tmp`. |
 | 5 question | answer from the brief and the rules with `answer.sh form`; ask the owner only for decisions below |
 | 6 subagent error | read that child's last messages first, then prompt the brief's session: "Subagent `<s>` ended with `<error>` at `<time>`; check its work in git and continue." Quota errors: the fallback model in the launch message applies. |
-| 7 stalled | inspect the children. A child whose last tool calls completed with no model reply since is a hung model request: `POST /api/session/<child>/interrupt?resume=false`; the parent sees the subagent cancelled and retries (07c, 2026-10-10). Otherwise as 6. |
+| 7 stalled | inspect the children. A child whose last tool calls completed with no model reply since is a hung model request: `POST /api/session/<child>/interrupt?resume=false`; the parent sees the subagent cancelled and retries (07c, 2026-10-10). A tool call shown as `running` for 20 minutes is usually an unanswered permission request: check `GET /api/session/<s>/permission` first and answer it (only `watch.sh` reports permissions; a home-made watcher missed two in 09a, 2026-10-12). Only if none is pending and the tool's process is gone: `interrupt` the session, wait for `idle`, then prompt it; a prompt sent while it is busy is queued and dropped by the interrupt. Otherwise as 6. |
 | 8 server down | tell the owner; nothing else works until it is back |
 
 Send prompts with the API (`POST /api/session/<sid>/prompt` `{text}`, via `oc_api` in
 `scripts/lib/api.sh`).
+
+## Parallel briefs: integrate early
+While two or more briefs run, run `bash scripts/integrate.sh --project <p>` in the background
+every 10 minutes (it exits 1 on a conflict). It checks, in git's object database only (no build,
+no agent code run), that each brief merges into the target and every pair merges with each other.
+On a conflict: tell both agents which files and lines clash and how to keep their changes apart,
+before either is accepted.
 
 ## Decide or ask
 Decide yourself: anything the brief, the project's AGENTS.md or the harness rules answer.

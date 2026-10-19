@@ -89,6 +89,20 @@ through `accept`. On the orchestrating side, Claude Code with Superpowers' `brai
         accept (fast-forward to that SHA only)  ──▶  retro (what went wrong, cost per model)
 ```
 
+### Other implementers, parallel briefs and busy plans
+
+- **A Claude Code subagent can implement instead of an OpenCode session** (for example when a
+  plan's allowance is spent, or for work that needs a stronger model). It works in its own
+  worktree under `implementer/claude-subagent-rules.md`; `start-review.sh` pushes its branch to
+  the agents' mirror and starts an OpenCode review of it, so verify and accept stay the same.
+- **Briefs can run side by side.** `integrate.sh` test-merges their branches early (`git merge-tree`),
+  so a conflict shows up while both briefs are still running, not at accept time.
+- **Plans with a short window** (for example a 5-hour quota) can declare `max_busy_sessions`;
+  the model choice then passes to the next model in the role's list instead of queueing.
+- **Interrupted sessions resume:** implementers keep `state.md` and work-in-progress notes, and
+  the running-briefs skill says how to restart a stuck parent, a dead tool call or a watcher at
+  its time limit.
+
 ## The skills
 
 | Skill | Does |

@@ -59,3 +59,42 @@ models_render() {
         "Allowed providers: " + ([$s | to_entries[] | select((.value.ends // "9999-12-31") >= $today) | "`\(.key)/`"] | join(", ")) + ". Never any other provider."
     ' "$HARNESS_CONFIG_DIR/models.json"
 }
+
+# models_busy PROVIDER: how many of PROVIDER's sessions updated in the last 6 hours are busy (no
+# "idle" message since their last prompt, the test watch.sh uses). Needs api.sh.
+models_busy() {
+    local provider="$1" since s n=0
+    since=$(( ($(date +%s) - 6 * 3600) * 1000 ))
+    while read -r s; do
+        [ -n "$s" ] || continue
+        oc_api GET "/api/session/$s/message" 2>/dev/null | jq -e '.data | (map(.type) | index("user")) as $u
+            | .[0:$u] | map(select(.type == "idle")) | length == 0' >/dev/null && n=$((n + 1))
+    done < <(oc_api GET '/api/session?limit=1000' 2>/dev/null | jq -r --arg p "$provider" --argjson t "$since" \
+        '.data[]? | select(.model.providerID == $p and (.time.updated // 0) >= $t) | .id')
+    echo "$n"
+}
+
+# models_pick EFFECTIVE ROLE: the role's first live model whose provider is under its
+# "max_busy_sessions" (a subscription with a short usage window, e.g. Z.ai's 5 hours, can't take
+# two heavy sessions at once). All capped: the first model anyway, with a warning. Needs api.sh.
+models_pick() {
+    local eff="$1" role="$2" today="${HARNESS_TODAY:-$(date +%F)}" m p max busy first=
+    while read -r m; do
+        [ -n "$m" ] || continue
+        [ -n "$first" ] || first="$m"
+        p="${m%%/*}"
+        max="$(jq -r --arg p "$p" '.subscriptions[$p].max_busy_sessions // empty' "$HARNESS_CONFIG_DIR/models.json")"
+        if [ -n "$max" ]; then
+            busy="$(models_busy "$p")"
+            if [ "$busy" -ge "$max" ]; then
+                echo "chargehand: skipping $m for $role: $p: $busy busy session(s), limit $max" >&2
+                continue
+            fi
+        fi
+        echo "$m"; return 0
+    done < <(jq -r --argjson e "$eff" --arg r "$role" --arg today "$today" "$_MODELS_JQ_DEFS"'
+        .subscriptions as $s | ($e[$r] // []) | live($s; $today)[]' "$HARNESS_CONFIG_DIR/models.json")
+    [ -n "$first" ] || die "no live model for $role"
+    echo "chargehand: every model for $role is at its busy limit; using $first anyway" >&2
+    echo "$first"
+}

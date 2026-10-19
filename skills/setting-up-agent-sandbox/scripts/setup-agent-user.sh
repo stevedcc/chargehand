@@ -70,6 +70,10 @@ systemctl --user -M "$AGENT@" is-active podman.socket
 
 as_agent git config --global user.name  "Coding agent"
 as_agent git config --global user.email "$AGENT@$(hostname -s).localdomain"
+# Reuse recorded conflict resolutions on merges, but never stage them unseen: the agent checks
+# each "Resolved ... using previous resolution" file before committing (AGENTS.md).
+as_agent git config --global rerere.enabled true
+as_agent git config --global --unset rerere.autoUpdate 2>/dev/null || true
 
 for name in "${projects[@]}"; do
     pfile="$(project_file "$name")"

@@ -29,7 +29,12 @@ oc_api() {
             pw="$("${cmd[@]}")" || die "server_password: the command failed" ;;
         wrapper)
             local wrap tok; mapfile -t wrap < <(jq -r '.wrapper[]' <<<"$form"); tok="$(jq -r .token <<<"$form")"
-            "${wrap[@]}" curl "${args[@]}" -u "$user:$tok" "$url"
+            # TEMPORARY workaround for tswap (stevedcc/TokenSwap#173): overlapping unlocks make
+            # `ykman list` return no serials ("No YubiKey detected"), so callers queue on a lock.
+            # Remove once tswap serialises its own ykman calls.
+            mkdir -p "$HARNESS_STATE_DIR"
+            ( flock -w 120 9 || { echo "chargehand: timed out waiting for the API lock" >&2; exit 75; }
+              "${wrap[@]}" curl "${args[@]}" -u "$user:$tok" "$url" ) 9>"$HARNESS_STATE_DIR/api.lock"
             return ;;
         *) die "server_password: use one of env, file, command, wrapper" ;;
     esac

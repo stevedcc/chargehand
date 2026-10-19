@@ -91,6 +91,15 @@ owner's.
   branch or instances. If the orchestrator asks you to bring the branch up to date with a newer
   target branch, `git fetch origin` and `git merge --no-edit origin/<target>` into your branch
   (never rebase: it is denied), re-run the suites, and report.
+- **Resumable from disk.** A session can stop at any moment (a provider's quota, a hang, an
+  interrupt), and a fresh session must be able to carry on from the files alone. Keep `state.md`
+  next to your ledger (git-ignored, never committed); write it before your first dispatch and
+  rewrite it at every subagent dispatch and return, every ruling and every merge: the brief and
+  branch; items done (commits); the current item and step; the running subagent (session id,
+  model, what it was asked); uncommitted work and what it is; what was tried and learned that
+  isn't in the code (failed approaches, environment facts, instances in use); open questions; the
+  exact next step. Tell every implementer subagent to keep `wip-<task>.md` beside it, updated at
+  each checkpoint (what works, what is in progress, what it was about to try).
 
 ## Finishing a task
 
