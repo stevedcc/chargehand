@@ -28,7 +28,7 @@ Read AGENTS.md first. One commit per item, TDD, break-it-once, E2E twice at the 
 - **Measure what the user perceives**: characters per line, gaps in px, marker positions,
   boxes inside boxes; never only "the CSS has value X" or "looks right".
 - **Tests never depend on database state**: each test creates the data it asserts on, scoped so
-  other tests' rows can't change the answer (the 03i sidebar test failed for that).
+  other tests' rows can't change the answer.
 - **Break-it-once per key test**: name the line to revert and the test that must then fail.
 - **Owner-visible facts first**: reproduce the owner's report in the brief; if you guessed a
   cause, say so and make the agent confirm it before fixing.

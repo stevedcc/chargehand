@@ -58,8 +58,7 @@ apply instead**.
 - **Run test suites yourself, in the foreground**, and keep the summary lines verbatim. Long output
   goes to a file under `/tmp`; read its tail. **When a run shows any failure, grep the whole log
   for the failing tests' names and messages** (`grep -E "^\s*Failed |Error Message" <log>`) and
-  record them before re-running anything; a failure you can't name afterwards is evidence lost
-  (a real case: one unnamed failure each in two suites, green on re-run, and nobody could say why).
+  record them before re-running anything; a failure you can't name afterwards is evidence lost.
 - **Reviews are not yours to run or grade.** You can't start reviewer agents; the orchestrator has
   each item and the whole branch reviewed by another model and sends you the findings. Fix
   every Critical and Important finding in a new commit, or, if you believe a finding is wrong or

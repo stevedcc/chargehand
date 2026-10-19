@@ -48,4 +48,18 @@ test_record_name_is_injective() {
     assert_eq "slash and percent both encoded" "$(record_name 'agent/brief/x')" "agent%2Fbrief%2Fx"
     if [ "$(record_name 'agent/brief/x')" != "$(record_name 'agent/brief%x')" ]; then ok "different refs, different records"; else fail "agent/brief/x and agent/brief%x collide"; fi
 }
+test_records_dir_defaults_under_the_state_dir_and_is_created() {
+    write_config '{}'
+    d="$(records_dir demo)"
+    assert_eq "default" "$d" "$HARNESS_STATE_DIR/demo/records"
+    assert_eq "created" "$(test -d "$d" && echo yes)" "yes"
+}
+test_records_dir_from_config_with_home_and_project_placeholders() {
+    write_config '{"records_dir": "~/notes/chargehand/{project}/records"}'
+    assert_eq "configured" "$(records_dir demo)" "$HOME/notes/chargehand/demo/records"
+    assert_eq "script prints the same" "$(bash "$HARNESS_ROOT/skills/writing-retros/scripts/records-dir.sh" --project demo)" "$HOME/notes/chargehand/demo/records"
+}
+test_records_dir_rejects_a_bad_project_name() {
+    write_config '{}'; out="$( (records_dir '../x') 2>&1 )"; assert_eq "exit 2" "$?" "2"
+}
 run_tests

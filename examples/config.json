@@ -7,5 +7,6 @@
   "agent_user": "opencode",
   "launcher": "/usr/local/bin/chargehand-sandbox",
   "forbidden_tools": [],
-  "superpowers": true
+  "superpowers": true,
+  "records_dir": "~/.local/state/chargehand/{project}/records"
 }

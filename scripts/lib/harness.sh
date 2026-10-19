@@ -61,6 +61,16 @@ brief_dir() {
     printf '%s\n' "$HARNESS_STATE_DIR/$1/briefs/$2"
 }
 
+# records_dir PROJECT: where retrospectives and ledgers go (config.json "records_dir", ~ and {project}
+# expanded; default $HARNESS_STATE_DIR/<project>/records). Created if missing; printed.
+records_dir() {
+    valid_name "$1" || die "bad project name \"$1\""
+    local d; d="$(config_get records_dir "$HARNESS_STATE_DIR/{project}/records")" || exit 2
+    d="${d//\{project\}/$1}"
+    mkdir -p "$d" || die "cannot create the records folder $d"
+    printf '%s\n' "$d"
+}
+
 forbidden_tools() { jq -r '(.forbidden_tools // [])[]' "$HARNESS_CONFIG_DIR/config.json" 2>/dev/null || true; }
 
 # agent_text: filter for anything agent-authored before it reaches the orchestrator's screen

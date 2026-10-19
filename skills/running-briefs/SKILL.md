@@ -7,8 +7,8 @@ description: Use when launching an agent brief session, watching running briefs,
 
 ## Overview
 Launch with the scripts, watch the whole session tree in the background, and act on what the
-watcher reports. A parent session that looks busy proves nothing: in 03h a subagent died on an
-empty shell call and the parent waited an hour.
+watcher reports. A parent session that looks busy proves nothing: a watcher that polls only the parent misses a
+dead subagent.
 
 ## Launch
 1. `bash scripts/models.sh --project <p>`: the allocation must print with no problems
@@ -29,9 +29,7 @@ disk"):
 kept as `launch.txt.prev<n>`. Restart the watcher afterwards. Check first that the worktree
 exists in the agent clone and that the fallback's subscription is live (`models.sh`). If the
 session never got its launch message, the launcher keeps it as `sid.failed-<n>` and writes no
-`sid`: just launch again. Whether a prompt can carry a per-message `model` (which would make a
-resume without a new session possible) is untested: only session creation and prompts as the
-scripts send them are used here.
+`sid`: just launch again.
 
 ## Branches implemented outside the sandbox
 A Claude subagent implements in the owner's repo (rules: `implementer/claude-subagent-rules.md`).
@@ -82,7 +80,7 @@ Send prompts with the API (`POST /api/session/<sid>/prompt` `{text}`, via `oc_ap
 
 ## Parallel briefs: integrate early
 While two or more briefs run, run `bash scripts/integrate.sh --project <p>` after each watcher
-exit (it exits 1 on a conflict, 2 when it could not run, e.g. the fetch failed; it shares a lock with `agent-sync.sh fetch`, so the two no longer collide). It checks, in git's object database only (no build,
+exit (it exits 1 on a conflict, 2 when it could not run, e.g. the fetch failed; it shares a lock with `agent-sync.sh fetch`). It checks, in git's object database only (no build,
 no agent code run), that each brief merges into the target and every pair merges with each other.
 On a conflict: tell both agents which files and lines clash and how to keep their changes apart,
 before either is accepted.

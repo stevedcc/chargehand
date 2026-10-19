@@ -13,7 +13,7 @@ failure this skill exists to prevent.
 ## The files (`~/.config/chargehand/`)
 | File | Holds |
 |---|---|
-| `config.json` | `server_url`, `server_user`, `server_password` (how to get it), `agent_user`, `launcher`, `forbidden_tools`, `superpowers` (default true: setup adds the Superpowers plugin for the agent) |
+| `config.json` | `server_url`, `server_user`, `server_password` (how to get it), `agent_user`, `launcher`, `forbidden_tools`, `superpowers` (default true: setup adds the Superpowers plugin for the agent), `records_dir` (where retros go; default `~/.local/state/chargehand/{project}/records`) |
 | `models.json` | `subscriptions` (provider → `pricing`, optional `ends`, `max_busy_sessions`, `"pay_per_use": true` for a provider billed per token), `roles` (implementer, task_review, final_review, low_level → ordered model lists) |
 | `projects/<name>.json` | paths, branch, E2E and verify commands, toolchain, self-test extras, optional `roles` override |
 

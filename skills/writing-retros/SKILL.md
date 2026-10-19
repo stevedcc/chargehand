@@ -11,9 +11,11 @@ script, a model choice) and fixed there, with the brief's measured cost. "The mo
 never a cause; what let the failure cost time is.
 
 ## Where
-`records/<project>/retrospectives.md` in the harness repo (newest first, below the Open actions
-table), and the agent's Ledger section into `records/<project>/ledger.md`. Not the project repo:
-commits there would break the next accept's fast-forward.
+`bash scripts/records-dir.sh --project <p>` prints the records folder (config.json `records_dir`,
+default `~/.local/state/chargehand/<project>/records`). The retro goes in `retrospectives.md`
+there (newest first, below an Open actions table; create the file with that table if missing),
+the agent's Ledger section in `ledger.md`. Never in the project repo: commits there break the
+next accept's fast-forward.
 
 ## Cost
 `bash scripts/brief-cost.sh --project <p> --tag <tag>`: plan dollars per provider and model,
@@ -32,7 +34,7 @@ created → idle) and review rounds.
 Then update **Open actions**: new rows for changes not made yet; mark done rows with the brief
 that did them; drop rows only on purpose, saying why.
 
-## Example (03h)
+## Example
 - Tripped on: 1. A subagent died on an empty shell call; the brief stalled ~1 h.
 - Why: 1. The watcher polled only the parent session, which stayed "busy".
 - Change: 1. `watch.sh` walks every child session and exits 6 on a child error, 7 on no new
