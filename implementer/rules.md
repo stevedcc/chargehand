@@ -116,7 +116,11 @@ owner's.
 
 Before saying a task is finished, an implementer must do all of these, in order:
 
-1. **Verify:** run the relevant suites after the last change and keep the output.
+1. **Verify:** run the relevant suites after the last change and keep the summary lines
+   verbatim; send long output to a file under `/tmp` and read its tail. When a run shows any
+   failure, grep the whole log for the failing tests' names and messages and record them before
+   re-running anything: a failure you can't name afterwards is evidence lost, and "flaky" is not
+   a cause.
 2. **Independent review:** use the superpowers `requesting-code-review` skill to have a *separate*
    reviewer agent check the diff against the brief, the project's AGENTS.md and these rules. Give
    the reviewer the brief itself, not your summary of it. Fix what it finds, or stop and report
