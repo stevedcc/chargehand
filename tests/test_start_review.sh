@@ -52,4 +52,26 @@ test_review_never_picks_a_pay_per_use_model_unasked() {
     out="$(bash "$SCRIPT" --project demo --tag 07b --branch feat/x --base abc123 --role task_review --allow-paid --prompt "$TEST_TMP/prompt.md" 2>/dev/null)"
     assert_eq "allowed" "$out" "api/big-2 ses_r"
 }
+test_default_prompt_is_the_shipped_review_template() {
+    start_api; setup_review feat/x
+    fixture POST /api/session '{"data": {"id": "ses_r"}}'
+    fixture POST /api/session/ses_r/prompt '{"data": {"id": "m1"}}'
+    out="$(bash "$SCRIPT" --project demo --tag 07a --branch feat/x --base abc123 --role final_review --brief docs/briefs/07a.md --extra "Judge the cache key in particular." 2>&1)"
+    assert_eq "starts without --prompt" "$out" "go/deepseek-v4-pro ses_r"
+    msg="$(cat "$HARNESS_STATE_DIR/demo/briefs/07a-review/launch.txt")"
+    assert_contains "fetches into a local review branch" "$msg" '`git fetch origin "+feat/x:refs/heads/$R"`'
+    assert_contains "worktree" "$msg" 'git worktree add ".worktrees/$R" "$R"'
+    assert_contains "diff from the base" "$msg" "git diff abc123..HEAD"
+    assert_contains "the brief" "$msg" "docs/briefs/07a.md"
+    assert_contains "extra slot filled" "$msg" "Judge the cache key in particular."
+    assert_contains "no fixes, commits, pushes" "$msg" "do not implement, fix, commit or push"
+    assert_contains "grades" "$msg" "Critical, Important or Minor"
+    assert_contains "verdict" "$msg" "Ready to merge: yes/no"
+    for ph in TAG BRANCH BASE BRIEF EXTRA; do assert_not_contains "no {$ph} left" "$msg" "{$ph}"; done
+}
+test_default_prompt_needs_the_brief_path() {
+    start_api; setup_review feat/x
+    out="$(bash "$SCRIPT" --project demo --tag 07a --branch feat/x --base abc123 --role final_review 2>&1)"
+    assert_eq "refused" "$?" "2"; assert_contains "says why" "$out" "--brief"
+}
 run_tests

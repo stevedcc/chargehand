@@ -36,9 +36,13 @@ scripts send them are used here.
 ## Branches implemented outside the sandbox
 A Claude subagent implements in the owner's repo (rules: `implementer/claude-subagent-rules.md`).
 This implementer is trusted like you: its builds and tests run with your rights. Use it only on repos whose tests you would run yourself.
-Its reviews run sandboxed: `bash scripts/start-review.sh --project <p> --tag <tag> --branch <b>
---base <sha> --role task_review|final_review --prompt <file>` (`--help`). The review session
-fetches the branch into the agent clone, so `agent-sync.sh fetch`/`verify` then work as usual.
+`bash scripts/start-claude-brief.sh --project <p> --tag <tag> --brief <path> --first-instance K`
+creates its worktree on `brief/<tag>` and prints the prompt to give to the Agent tool (stderr
+has the review base). Its reviews run sandboxed: `bash scripts/start-review.sh --project <p>
+--tag <tag> --branch brief/<tag> --base <sha> --role task_review|final_review --brief <path>
+[--extra "<what to judge in particular>"]` (`--prompt <file>` for your own prompt; `--help`). The
+review session fetches the branch into the agent clone, so `agent-sync.sh fetch`/`verify` then
+work as usual.
 
 **Busy limits:** a subscription with `"max_busy_sessions"` in models.json (Z.ai: 1, its 5-hour
 window can't take two heavy sessions) is skipped while that many of its sessions are busy;
@@ -66,7 +70,7 @@ depend on the order the server lists them in.
 | 4 permission | (only requests from the watched briefs' sessions stop the watcher; a request from any other session is printed once as information and answered by whoever runs that session) read the resource; `bash scripts/answer.sh permission <s> <id> once\|reject "<why>"`. Never allow paths outside the clone and `/tmp`. These rules are guard rails, not a boundary: the agent runs as the same user as the OpenCode server and can read its password, so it could answer its own requests. The boundary is the agent user, the sandbox and your diff review. |
 | 5 question | answer from the brief and the rules with `answer.sh form`; ask the owner only for decisions below |
 | 6 subagent error | read that child's last messages first, then prompt the brief's session: "Subagent `<s>` ended with `<error>` at `<time>`; check its work in git and continue." Quota errors: the fallback model in the launch message applies. |
-| 7 stalled | inspect the children. A child whose last tool calls completed with no model reply since is a hung model request: `POST /api/session/<child>/interrupt?resume=false`; the parent sees the subagent cancelled and retries (07c, 2026-10-10). A tool call shown as `running` for 15 minutes is usually an unanswered permission request: check `GET /api/session/<s>/permission` first and answer it (only `watch.sh` reports permissions; a home-made watcher missed two in 09a, 2026-10-12). Only if none is pending and the tool's process is gone: `interrupt` the session, wait for `idle`, then prompt it; a prompt sent while it is busy is queued and dropped by the interrupt. Otherwise as 6. |
+| 7 stalled | inspect the children. A child whose last tool calls completed with no model reply since is a hung model request: `bash scripts/answer.sh interrupt <child>`; the parent sees the subagent cancelled and retries. A tool call shown as `running` for 15 minutes is usually an unanswered permission request or question: run `bash scripts/answer.sh pending <brief's session>` first and answer what it lists (only `watch.sh` reports permissions; a home-made watcher misses them). Only if nothing is pending and the tool's process is gone: `answer.sh interrupt` the session, wait for `idle`, then prompt it; a prompt sent while it is busy is queued and dropped by the interrupt. Otherwise as 6. |
 | 8 server down | tell the owner; nothing else works until it is back. If the report says `API LOCK STUCK`, the server is fine: another script (a second watcher, a `brief-cost.sh`, a hung wrapper) holds `<state dir>/api.lock`; find and end it, then restart. |
 | 9 brief session error | The brief's own session failed (provider error such as 402, quota or authentication) or went idle with an outcome that is not a success. **Never verify it.** Show the owner the provider and the message from the report. On 402 or a quota error tell the owner at once: the session's model is pinned and the provider refuses it, so prompting the same session fails again; resume on the fallback model from the launch message (see Resume a dead brief); a pay-per-use fallback needs the owner's yes and `--allow-paid`. Other errors: read the last messages, then prompt the session to continue (if it errors again, resume). |
 | 10 watcher blind | The watcher could not read the brief's messages for 3 polls (the report says why: session not on the server, empty message list, list fetch failing). The brief may be fine; restarting will not help until the cause is fixed. Check the server and `sid` (`start-brief.sh` writes `sid` only after the launch message is accepted), then restart. |
@@ -75,8 +79,8 @@ Send prompts with the API (`POST /api/session/<sid>/prompt` `{text}`, via `oc_ap
 `scripts/lib/api.sh`).
 
 ## Parallel briefs: integrate early
-While two or more briefs run, run `bash scripts/integrate.sh --project <p>` in the background
-every 10 minutes (it exits 1 on a conflict, 2 when it could not run, e.g. the fetch failed; it shares a lock with `agent-sync.sh fetch`, so the two no longer collide). It checks, in git's object database only (no build,
+While two or more briefs run, run `bash scripts/integrate.sh --project <p>` after each watcher
+exit (it exits 1 on a conflict, 2 when it could not run, e.g. the fetch failed; it shares a lock with `agent-sync.sh fetch`, so the two no longer collide). It checks, in git's object database only (no build,
 no agent code run), that each brief merges into the target and every pair merges with each other.
 On a conflict: tell both agents which files and lines clash and how to keep their changes apart,
 before either is accepted.
