@@ -41,10 +41,19 @@ else
     cmd="${e2e//\{N\}/$n}"; e2e_text="Run E2E with \`${cmd//\{K\}/$first}\` (instances $first..$((first + n - 1)) are yours)."
 fi
 
-wt="$repo/.worktrees/$tag"
+# Beside the main working tree, never inside the owner's worktree: that may itself be a linked
+# worktree (the target's checkout), and a nested one would sit inside it. A bare repo has no main
+# working tree: use the owner worktree's parent.
+common="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)"
+if [ "$(git --git-dir="$common" config --type=bool core.bare 2>/dev/null)" = true ] || [ "$(basename "$common")" != .git ]; then
+    base="$(dirname "$repo")"
+else
+    base="$(dirname "$common")"
+fi
+wt="$base/.worktrees/$tag"
 [ ! -e "$wt" ] || die "$wt already exists: the brief has a worktree"
 git -C "$repo" worktree add -q "$wt" "brief/$tag"
-exclude="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/info/exclude"
+exclude="$common/info/exclude"
 mkdir -p "$(dirname "$exclude")"
 for p in .superpowers/ .worktrees/; do grep -qxF -- "$p" "$exclude" 2>/dev/null || printf '%s\n' "$p" >> "$exclude"; done
 

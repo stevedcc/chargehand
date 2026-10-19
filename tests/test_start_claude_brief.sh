@@ -47,6 +47,27 @@ test_a_brief_only_on_the_target_warns() {
     assert_contains "warns" "$(cat "$TEST_TMP/err")" "brief docs/09a.md is on main, not on its own brief/09a commit; launching from the target"
     assert_not_contains "no first-commit claim" "$out" "first commit"
 }
+test_worktree_goes_beside_the_main_checkout_when_the_owner_worktree_is_linked() {
+    M="$HOME/main"; g init -q "$M"; g -C "$M" commit -q --allow-empty -m base
+    g -C "$M" switch -q -c brief/09a; mkdir -p "$M/docs"; echo "# 09a" > "$M/docs/09a.md"; g -C "$M" add docs; g -C "$M" commit -q -m "brief 09a"; g -C "$M" switch -q main
+    g -C "$M" worktree add -q -b blog "$M/.worktrees/blog" main
+    write_project demo "{\"owner_worktree\": \"$M/.worktrees/blog\", \"target_branch\": \"blog\"}"
+    out="$(bash "$SCRIPT" --project demo --tag 09a --brief docs/09a.md 2>"$TEST_TMP/err")"
+    assert_eq "at <main>/.worktrees/<tag>" "$(g -C "$M/.worktrees/09a" branch --show-current)" "brief/09a"
+    assert_eq "not nested in the target checkout" "$(ls -d "$M/.worktrees/blog/.worktrees" 2>/dev/null)" ""
+    assert_contains "prompt names it" "$out" "$M/.worktrees/09a"
+    assert_contains "stderr names it" "$(cat "$TEST_TMP/err")" "worktree $M/.worktrees/09a on brief/09a"
+}
+test_a_bare_common_dir_falls_back_to_the_owner_worktrees_parent() {
+    B="$HOME/bare.git"; g init -q --bare "$B"; g clone -q "$B" "$HOME/seed" 2>/dev/null
+    g -C "$HOME/seed" commit -q --allow-empty -m base; g -C "$HOME/seed" push -q origin HEAD:main
+    g -C "$HOME/seed" switch -q -c brief/09a; mkdir -p "$HOME/seed/docs"; echo "# 09a" > "$HOME/seed/docs/09a.md"
+    g -C "$HOME/seed" add docs; g -C "$HOME/seed" commit -q -m "brief 09a"; g -C "$HOME/seed" push -q origin brief/09a
+    mkdir -p "$HOME/trees"; g -C "$B" worktree add -q "$HOME/trees/main" main
+    write_project demo "{\"owner_worktree\": \"$HOME/trees/main\", \"target_branch\": \"main\"}"
+    bash "$SCRIPT" --project demo --tag 09a --brief docs/09a.md >/dev/null 2>"$TEST_TMP/err"
+    assert_eq "beside the owner worktree" "$(g -C "$HOME/trees/.worktrees/09a" branch --show-current)" "brief/09a"
+}
 test_a_project_without_e2e_needs_no_instances() {
     setup_claude; write_project demo "{\"owner_worktree\": \"$W\", \"target_branch\": \"main\"}"
     out="$(bash "$SCRIPT" --project demo --tag 09a --brief docs/09a.md 2>/dev/null)"
