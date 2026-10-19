@@ -154,7 +154,10 @@ oc="$AGENT_HOME/.config/opencode/opencode.json"
 if as_agent test -f "$oc"; then
     as_agent cat "$oc" > "$work/base.json"
 elif [ -f "$OWNER_HOME/.config/opencode/opencode.json" ]; then
-    as_owner cat "$OWNER_HOME/.config/opencode/opencode.json" > "$work/base.json"
+    # The owner's config is only a starting point: credentials stay behind (the agent logs in to its
+    # providers itself, step 3 below), and what was dropped is listed, paths only.
+    as_owner cat "$OWNER_HOME/.config/opencode/opencode.json" > "$work/owner.json"
+    strip_provider_secrets "$work/owner.json" > "$work/base.json"
 fi
 low="$(jq -r '.roles.low_level[0] // empty' "$HARNESS_CONFIG_DIR/models.json")"
 [ -n "$low" ] || die "models.json has no low_level role ${NOT_CONFIGURED_HINT:-}"

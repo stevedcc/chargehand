@@ -31,4 +31,8 @@ test_clone_excludes_the_resume_notes_once() {
 test_setup_applies_the_exclude_to_the_clone_as_the_agent() {
     assert_contains "as the agent" "$(grep -n 'CLONE_EXCLUDE_SH' "$SETUP")" 'as_agent sh -c "$CLONE_EXCLUDE_SH" sh "$clone"'
 }
+test_setup_never_hands_the_owners_credentials_to_the_agent() {
+    assert_contains "owner copy goes through the stripper" "$(grep -n 'strip_provider_secrets' "$SETUP")" 'strip_provider_secrets "$work/owner.json" > "$work/base.json"'
+    assert_not_contains "no direct copy as the base" "$(grep -n 'opencode.json" > "$work/base.json"' "$SETUP")" "OWNER_HOME"
+}
 run_tests

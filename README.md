@@ -212,7 +212,9 @@ Once per machine; steps 4 and 5 again for each further project.
    (`/etc/chargehand/`), a sudoers entry allowing only the launcher's fixed forms, and the agent's
    OpenCode config: Chargehand's rules, the pinned pattern-applier subagent, and the
    [Superpowers](https://github.com/obra/superpowers) plugin (added if missing; if your own
-   `~/.config/opencode/opencode.json` exists, it is the starting point, providers included).
+   `~/.config/opencode/opencode.json` exists, it is the starting point, providers included but
+   without API keys, tokens or other credentials; setup lists what it dropped, and the agent logs
+   in to its providers itself in step 5).
 5. **Give the agent user OpenCode and your subscriptions** (first time only; setup prints these):
    ```
    sudo -iu <agent>

@@ -85,3 +85,14 @@ render_sudoers() {
 # touching the project's .gitignore.
 CLONE_EXCLUDE_SH='f="$1/.git/info/exclude"; mkdir -p "$1/.git/info"
 for p in .superpowers/ "wip-*.md"; do grep -qxF -- "$p" "$f" 2>/dev/null || printf "%s\n" "$p" >> "$f"; done'
+
+# strip_provider_secrets FILE: FILE's JSON on stdout without credentials: a top-level "apiKey" and
+# every string under "provider" whose key looks like a credential (key, token, secret, password,
+# auth, credential). The dropped paths (never the values) go to stderr. Setup uses it on the owner's
+# opencode.json before the agent user gets a copy: the agent logs in to its providers itself.
+strip_provider_secrets() {
+    local filter='[paths(type == "string") | select(((.[0] == "provider") or (length == 1 and .[0] == "apiKey"))
+        and (last | type == "string") and (last | test("key|token|secret|password|auth|credential"; "i")))]'
+    jq -r "$filter"' | .[] | map(tostring) | join(".")' "$1" | sed 's/^/  dropped from the copied opencode.json: /' >&2
+    jq "delpaths($filter)" "$1"
+}

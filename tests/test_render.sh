@@ -70,6 +70,27 @@ test_opencode_config_drops_an_old_test_runner() {
     out="$(render_opencode_config "$TEST_TMP/oc.json" /s go/m-1)"
     assert_eq "old test-runner removed, own agent kept" "$(jq -c '.agents | keys' <<<"$out")" '["mine","pattern-applier"]'
 }
+test_owner_config_is_copied_without_secrets() {
+    cat > "$TEST_TMP/owner.json" <<'J'
+{"apiKey": "top-secret-0", "keybinds": {"x": "y"}, "theme": "dark",
+ "provider": {"openai": {"options": {"apiKey": "sk-live-1", "baseURL": "https://api.example", "timeout": 5},
+                         "models": {"m": {"limit": {"output": 4096}}}},
+              "other": {"options": {"headers": {"x-api-key": "k-2", "Accept": "json"}, "accessToken": "t-3", "clientSecret": "s-4", "password": "p-5"}}}}
+J
+    out="$(strip_provider_secrets "$TEST_TMP/owner.json" 2>"$TEST_TMP/dropped")"
+    assert_eq "secrets gone, the rest kept" "$(jq -c . <<<"$out")" \
+        '{"keybinds":{"x":"y"},"theme":"dark","provider":{"openai":{"options":{"baseURL":"https://api.example","timeout":5},"models":{"m":{"limit":{"output":4096}}}},"other":{"options":{"headers":{"Accept":"json"}}}}}'
+    dropped="$(cat "$TEST_TMP/dropped")"
+    assert_contains "top-level apiKey named" "$dropped" "apiKey"
+    assert_contains "nested path named" "$dropped" "provider.openai.options.apiKey"
+    assert_contains "header key named" "$dropped" "provider.other.options.headers.x-api-key"
+    assert_contains "password named" "$dropped" "provider.other.options.password"
+    for v in sk-live-1 k-2 t-3 s-4 p-5 top-secret-0; do assert_not_contains "value $v never printed" "$dropped" "$v"; done
+}
+test_owner_config_without_secrets_prints_nothing() {
+    echo '{"provider": {"x": {"options": {"baseURL": "u"}}}}' > "$TEST_TMP/owner.json"
+    assert_eq "nothing dropped" "$(strip_provider_secrets "$TEST_TMP/owner.json" 2>&1 >/dev/null)" ""
+}
 test_opencode_config_from_nothing() {
     out="$(render_opencode_config /nonexistent /s go/m-1)"
     assert_eq "fresh" "$(jq -c .instructions <<<"$out")" '["/s/rules.md"]'

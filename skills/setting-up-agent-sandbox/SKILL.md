@@ -36,7 +36,9 @@ owner repo <--fetch-- agent clone   (git fetch with upload-pack only: no hooks, 
    `sudo bash <plugin>/skills/setting-up-agent-sandbox/scripts/setup-agent-user.sh --project <name>`
    It creates the user, mirror, clone, root-owned launcher (`/usr/local/bin/chargehand-sandbox`),
    root-owned project env (`/etc/chargehand/`), rules (`/usr/local/share/chargehand/`),
-   sudoers (launcher's fixed forms only) and the agent's OpenCode config.
+   sudoers (launcher's fixed forms only) and the agent's OpenCode config. If the owner has an
+   `opencode.json`, it is copied without credentials (setup lists the dropped paths): providers log
+   in as the agent user, step 3.
 3. First time only, as the agent user: install OpenCode and log in to each subscription provider
    (setup prints the commands).
 4. Proof: `sudo -n -u <agent> /usr/local/bin/chargehand-sandbox --selftest --project <name>`
