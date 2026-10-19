@@ -37,4 +37,15 @@ test_missing_config_points_to_the_skill() {
     out="$( (project_get demo repo) 2>&1 )"
     assert_contains "pointer" "$out" "ask Claude to configure chargehand"
 }
+test_agent_text_strips_control_characters() {
+    in="$(printf 'fix\033[2J\033[Hhidden\033]0;title\007 done\r\x01\x7f\xc2\x9b31m tab\there')"
+    out="$(printf '%s' "$in" | agent_text)"
+    assert_eq "escapes, C0, DEL, C1 gone; tab kept" "$out" "fixhidden done31m tab	here"
+    assert_eq "newlines kept" "$(printf 'a\nb' | agent_text)" "$(printf 'a\nb')"
+    assert_eq "plain UTF-8 untouched" "$(printf 'Größe – ok' | agent_text)" "Größe – ok"
+}
+test_record_name_is_injective() {
+    assert_eq "slash and percent both encoded" "$(record_name 'agent/brief/x')" "agent%2Fbrief%2Fx"
+    if [ "$(record_name 'agent/brief/x')" != "$(record_name 'agent/brief%x')" ]; then ok "different refs, different records"; else fail "agent/brief/x and agent/brief%x collide"; fi
+}
 run_tests

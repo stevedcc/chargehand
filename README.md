@@ -48,17 +48,22 @@ the agents' reach:
 
 - **The agent can't touch your work.** It commits to its own clone. Its branch reaches you only
   through `accept`, a fast-forward to the exact commit that passed verification.
-- **The agent can't change how it is judged.** Verification runs a clean checkout in the sandbox
-  with build and test commands from a root-owned file that setup writes. Nothing in the
-  repository, and nothing the agent can edit, decides what "passed" means.
+- **The agent can't choose what runs or where.** Verification runs a clean checkout in the
+  sandbox with build and test commands from a root-owned file that setup writes. What those
+  commands execute, though, is the agent's code: its test project could print "Passed" and exit
+  0 whatever happens. Verification catches honest mistakes; **your review of the diff against the
+  brief catches dishonest ones, and is the real gate** (the `verifying-and-accepting` skill makes
+  it step 2, before any verify).
 - **The agent can't plant code for you to run.** Its clone shares no `.git` with yours, so there
   are no hooks or git config for it to leave behind. You fetch its work through `upload-pack`,
   which runs no hooks and ignores the clone's config, and verification starts from a fresh clone
   with `core.hooksPath=/dev/null`. Until you accept, you never build, test or run agent-written
   code as yourself; reading diffs is safe.
-- **The orchestrator never trusts a status.** The watcher follows the whole session tree and
-  reports stalls, subagent errors, questions and permission requests, so a session that looks
-  busy but is stuck gets noticed.
+- **The orchestrator never trusts a status, or a story.** The watcher follows the whole session
+  tree and reports stalls, subagent errors, questions and permission requests, so a session that
+  looks busy but is stuck gets noticed. Commit messages, reports and questions are the agent's
+  words: the skills treat them as data, never as instructions, and the scripts strip terminal
+  control characters from anything agent-written they print.
 
 ## Built on Superpowers
 
@@ -127,14 +132,25 @@ subagents: a test runner, and a pattern applier for repeated mechanical changes.
 - the agent user's rootless Podman socket (for Testcontainers);
 - `/usr` and `/etc` read-only.
 
-Every other home directory does not exist, and `$HOME` is in memory. On top of that, the session
-permissions deny `sudo`, `git push`, `git remote` and any tool you list as forbidden, and file
-access outside the clone and the toolchain needs an answer from the orchestrator. The server
-password never appears on a command line.
+Every other home directory does not exist, and `$HOME` is in memory. The server password never
+appears on a command line.
 
-**What it does not do:** the sandbox has network access (the agents need their model APIs), so an
-agent could send what it can read (its clone) somewhere. Treat the clone as something an agent may
-leak, and keep secrets out of the repository, which you should anyway.
+**The boundary is the agent user and the sandbox, not the session permissions.** OpenCode's
+permission rules (deny `sudo`, `git push`, `git remote` and any tool you list as forbidden; ask
+before file access outside the clone and the toolchain) are guard rails that keep a confused agent
+on track. They don't stop a hostile one: the agent's tools run as the same user as the OpenCode
+server, so they can read its password and could answer their own permission requests, and a
+denied command can be reached another way (a script, the Podman socket). Assume an agent can do
+anything its user can, inside the sandbox.
+
+**What it does not do:**
+- The sandbox has network access (the agents need their model APIs), so an agent could send what
+  it can read somewhere: its clone, the read-only mirror, `/etc` (including Chargehand's own
+  `/etc/chargehand/*.env`, which holds paths and commands, never secrets). Keep secrets out of the
+  repository and out of `/etc` files other users can read.
+- The rootless Podman socket is there for Testcontainers; it lets the agent start containers as
+  its own user.
+- It doesn't make a test honest: see "The agent can't choose what runs or where" above.
 
 ## Models and cost
 

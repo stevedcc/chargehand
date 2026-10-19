@@ -58,3 +58,18 @@ brief_dir() {
 }
 
 forbidden_tools() { jq -r '(.forbidden_tools // [])[]' "$HARNESS_CONFIG_DIR/config.json" 2>/dev/null || true; }
+
+# agent_text: filter for anything agent-authored before it reaches the orchestrator's screen
+# (commit subjects, test output, permission resources, questions). An agent controls that text, so
+# it must not be able to move the cursor, clear the screen, retitle the terminal or hide lines:
+# strips ANSI/OSC escape sequences, C0 controls except tab and newline, DEL and C1 controls.
+agent_text() {
+    LC_ALL=C sed -e 's/\x1b\[[0-9;?]*[ -/]*[@-~]//g' \
+                 -e 's/\x1b[]PX^_][^\x07\x1b]*\(\x07\|\x1b\\\)//g' \
+                 -e 's/\xc2[\x80-\x9f]//g' \
+        | LC_ALL=C tr -d '\000-\010\013-\037\177'
+}
+
+# record_name REF: a file name for a per-ref record (verified commits) that is unique per ref:
+# "%" and "/" are both encoded, so "a/b" and "a%b" can never share a record.
+record_name() { printf '%s' "$1" | sed -e 's/%/%25/g' -e 's|/|%2F|g'; }

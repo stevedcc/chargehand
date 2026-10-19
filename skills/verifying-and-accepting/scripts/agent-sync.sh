@@ -27,20 +27,20 @@ fetch)
     # scoped to this one process. Never add the agent's clone to your global safe.directory.
     git fetch --no-tags --upload-pack="git -c safe.directory=$clone upload-pack" agent "+refs/heads/*:refs/remotes/agent/*"
     echo; echo "New on agent/$target:"
-    git log --oneline "$target..agent/$target" 2>/dev/null || true ;;
+    { git log --oneline "$target..agent/$target" 2>/dev/null || true; } | agent_text ;;
 verify)
     ref="${1:-agent/$target}"
     sha="$(git rev-parse --verify "$ref^{commit}")"
     sudo -n -u "$(config_get agent_user opencode)" "$(config_get launcher /usr/local/bin/chargehand-sandbox)" \
-        --verify --project "$project" "$sha"
+        --verify --project "$project" "$sha" 2>&1 | agent_text   # test output is agent-authored text
     # Only a passing run is recorded: accept takes exactly this commit and nothing a later fetch brought.
     mkdir -p "$verified"
-    printf '%s\n' "$sha" > "$verified/$(printf '%s' "$ref" | tr '/' '%')" ;;
+    printf '%s\n' "$sha" > "$verified/$(record_name "$ref")" ;;
 accept)
     [ "$(git branch --show-current)" = "$target" ] || die "run accept with $target checked out in $repo"
     [ -z "$(git status --porcelain --untracked-files=no)" ] || die "$repo has uncommitted changes: set them aside (patch), accept, then re-apply"
     src="agent/${1:-$target}"
-    record="$verified/$(printf '%s' "$src" | tr '/' '%')"
+    record="$verified/$(record_name "$src")"
     [ -s "$record" ] || die "$src is not verified: run verify $src first (only a passing verify counts)"
     sha="$(<"$record")"; now="$(git rev-parse --verify "$src^{commit}")"
     [ "$now" = "$sha" ] || die "$src moved since verify ($sha verified, now $now): read the new commits, then verify again"

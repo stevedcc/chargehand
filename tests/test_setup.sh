@@ -9,4 +9,14 @@ test_setup_never_writes_agent_home_as_root() {
 test_setup_reads_agent_config_as_agent() {
     assert_not_contains "no root read of the agent's opencode.json" "$(grep -n 'base=' "$SETUP")" 'base="$oc"'
 }
+test_agent_clone_is_not_world_readable() {
+    line="$(grep -n 'install -d -o "$AGENT".*"$clone"' "$SETUP")"
+    assert_contains "clone owned by the agent, group the owner" "$line" '-o "$AGENT" -g "$OWNER"'
+    assert_contains "no access for others" "$line" '-m 2750'
+}
+test_launcher_never_mounts_a_path_the_clone_names() {
+    sb="$HARNESS_ROOT/skills/setting-up-agent-sandbox/scripts/sandbox.sh"
+    assert_not_contains "no bind of the clone's reported git directory" "$(cat "$sb")" '--bind "$common"'
+    assert_contains "refuses a git directory outside the clone" "$(cat "$sb")" 'outside the clone'
+}
 run_tests

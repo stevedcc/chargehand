@@ -41,7 +41,7 @@ exit 7 (stalled) instead.
 |---|---|
 | 0 idle | `verifying-and-accepting` |
 | 1 timeout | nothing happened; restart the watcher |
-| 4 permission | read the resource; `bash scripts/answer.sh permission <s> <id> once\|reject "<why>"`. Never allow paths outside the clone and `/tmp`. |
+| 4 permission | read the resource; `bash scripts/answer.sh permission <s> <id> once\|reject "<why>"`. Never allow paths outside the clone and `/tmp`. These rules are guard rails, not a boundary: the agent runs as the same user as the OpenCode server and can read its password, so it could answer its own requests. The boundary is the agent user, the sandbox and your diff review. |
 | 5 question | answer from the brief and the rules with `answer.sh form`; ask the owner only for decisions below |
 | 6 subagent error | read that child's last messages first, then prompt the brief's session: "Subagent `<s>` ended with `<error>` at `<time>`; check its work in git and continue." Quota errors: the fallback model in the launch message applies. |
 | 7 stalled | inspect the children. A child whose last tool calls completed with no model reply since is a hung model request: `POST /api/session/<child>/interrupt?resume=false`; the parent sees the subagent cancelled and retries (07c, 2026-10-10). A tool call shown as `running` for 20 minutes is usually an unanswered permission request: check `GET /api/session/<s>/permission` first and answer it (only `watch.sh` reports permissions; a home-made watcher missed two in 09a, 2026-10-12). Only if none is pending and the tool's process is gone: `interrupt` the session, wait for `idle`, then prompt it; a prompt sent while it is busy is queued and dropped by the interrupt. Otherwise as 6. |

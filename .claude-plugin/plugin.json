@@ -1,5 +1,5 @@
 {
   "name": "chargehand",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Run headless OpenCode agents on briefs from Claude Code: sandbox setup, brief writing, launching and watching, sandboxed verification and fast-forward accept, retros with cost per brief."
 }

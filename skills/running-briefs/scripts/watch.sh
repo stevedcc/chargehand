@@ -34,7 +34,7 @@ for tag in "${tags[@]}"; do
 done
 
 start=$(date +%s); misses=0
-say() { echo "[$(( ($(date +%s) - start) / 60 )) min] $*"; }
+say() { echo "[$(( ($(date +%s) - start) / 60 )) min] $*" | agent_text; }   # messages quote agent text
 
 while :; do
     if ! all="$(oc_api GET '/api/session?limit=1000' 2>/dev/null)"; then

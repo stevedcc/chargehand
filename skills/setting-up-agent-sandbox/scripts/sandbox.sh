@@ -120,10 +120,13 @@ for i in "${!clones[@]}"; do
         args+=(--ro-bind "$c" "$c")
     else
         args+=(--bind "$c" "$c")
+        # setup-agent-user.sh creates normal clones (.git inside the clone). The clone belongs to the
+        # agent, so what it reports as its git directory is agent-controlled: never mount a path it
+        # names. A git directory outside the clone means someone changed it — refuse.
         common="$(git -C "$c" rev-parse --path-format=absolute --git-common-dir)"
         case "$common/" in
-            "$c"/*) ;;                                   # normal clone: .git is inside the clone
-            *) args+=(--bind "$common" "$common") ;;     # linked worktree
+            "$c"/*) ;;
+            *) echo "sandbox: $c's git directory is outside the clone ($common); refusing" >&2; exit 2 ;;
         esac
     fi
     if [ -d "${mirrors[$i]}" ]; then args+=(--ro-bind "${mirrors[$i]}" "${mirrors[$i]}"); fi

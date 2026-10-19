@@ -108,7 +108,9 @@ for name in "${projects[@]}"; do
     step "7. [$name] agent clone $clone (owned by $AGENT)"
     as_agent git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$mirror" \
         || as_agent git config --global --add safe.directory "$mirror"   # agent trusts your mirror (read-only)
-    install -d -o "$AGENT" -g "$AGENT" -m 0755 "$clone"
+    # Not world-readable: the owner reads it (git fetch runs as the owner, through upload-pack), so
+    # the owner's group gets read access and the setgid bit keeps new files in that group.
+    install -d -o "$AGENT" -g "$OWNER" -m 2750 "$clone"
     [ -d "$clone/.git" ] || as_agent git clone -q --branch "$target" "$mirror" "$clone"
     as_agent git -C "$clone" log --oneline -1
     # Your repo gets a fetch-only remote for the agent's clone (agent-sync.sh fetches it safely).
