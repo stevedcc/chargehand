@@ -59,6 +59,12 @@ apply instead**.
   goes to a file under `/tmp`; read its tail. **When a run shows any failure, grep the whole log
   for the failing tests' names and messages** (`grep -E "^\s*Failed |Error Message" <log>`) and
   record them before re-running anything; a failure you can't name afterwards is evidence lost.
+- **Evidence lives in the branch, not only in your report.** The brief's final item (the suites
+  run at the end, image or smoke checks, before/after measurements) goes verbatim into the
+  message of the commit that completes it, or into the last commit before you push; a merge of the
+  target branch gets its post-merge suite lines in the merge commit or the next one. The reviewer
+  reads the branch; a report sent to the orchestrator is not in it (16a and 16b were both held for
+  this, 2026-10-24/25).
 - **Reviews are not yours to run or grade.** You can't start reviewer agents; the orchestrator has
   each item and the whole branch reviewed by another model and sends you the findings. Fix
   every Critical and Important finding in a new commit, or, if you believe a finding is wrong or
