@@ -78,10 +78,12 @@ forbidden_tools() { jq -r '(.forbidden_tools // [])[]' "$HARNESS_CONFIG_DIR/conf
 # it must not be able to move the cursor, clear the screen, retitle the terminal or hide lines:
 # strips ANSI/OSC escape sequences, C0 controls except tab and newline, DEL and C1 controls.
 agent_text() {
-    LC_ALL=C sed -e 's/\x1b\[[0-9;?]*[ -/]*[@-~]//g' \
+    # Line by line (sed -u, tr under stdbuf -oL): a long verify streams through here, and a block-
+    # buffered filter would hold every line, "Verifying ..." included, until the run ends.
+    LC_ALL=C sed -u -e 's/\x1b\[[0-9;?]*[ -/]*[@-~]//g' \
                  -e 's/\x1b[]PX^_][^\x07\x1b]*\(\x07\|\x1b\\\)//g' \
                  -e 's/\xc2[\x80-\x9f]//g' \
-        | LC_ALL=C tr -d '\000-\010\013-\037\177'
+        | LC_ALL=C stdbuf -oL tr -d '\000-\010\013-\037\177'
 }
 
 # record_name REF: a file name for a per-ref record (verified commits) that is unique per ref:

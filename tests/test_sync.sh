@@ -166,4 +166,17 @@ test_verify_without_wait_still_refuses_at_once() {
     assert_eq "exit 3 without --wait" "$rc" "3"
     assert_eq "tried once" "$(wc -l < "$TEST_TMP/sudo-calls")" "1"
 }
+test_verify_announces_the_start_while_the_verify_still_runs() {
+    # The start line must come when the launcher prints "Verifying", not when it exits: the filters
+    # between them (agent_text) would otherwise hold it back until the end of the run.
+    repos; mkdir -p "$TEST_TMP/bin"
+    printf '#!/bin/sh\necho "Verifying abc123 subject"\nwhile [ ! -e "%s" ]; do sleep 0.1; done\ntouch "%s"\nexit 0\n' \
+        "$TEST_TMP/release" "$TEST_TMP/exited" > "$TEST_TMP/bin/sudo"; chmod +x "$TEST_TMP/bin/sudo"
+    PATH="$TEST_TMP/bin:$PATH" sync verify --wait main > "$TEST_TMP/out" 2>&1 &
+    local pid=$! seen=no
+    for _ in $(seq 50); do grep -q "chargehand: verify of" "$TEST_TMP/out" && { seen=yes; break; }; sleep 0.1; done
+    assert_eq "start line shown while the launcher still runs" "$seen" "yes"
+    assert_eq "the launcher had not exited yet" "$([ -e "$TEST_TMP/exited" ] && echo exited || echo running)" "running"
+    touch "$TEST_TMP/release"; wait "$pid"; assert_eq "then passes" "$?" "0"
+}
 run_tests
