@@ -31,7 +31,7 @@ the ref `start-review.sh` printed (also in `review-ref.txt`), `agent/review/<tag
    Each build, suite and E2E command is also limited by the project's `verify_timeout_min`
    (default 60; a timeout counts as a failure). Exit codes: 0 passed; 10 the build or a suite
    failed or timed out (read the output); 3 another verify of the project is running (never start
-   a second one: wait, or restart only after the first is gone); 4 the sandbox could not start
+   a second one: use `verify --wait <ref>`, below); 4 the sandbox could not start
    (Podman socket); anything else: it could not run (sudo refused, launcher or sudoers out of
    date: re-run setup). Only exit 0 allows accept.
    Its summary lines show that the agent's tests ran in isolation and what they reported. They
@@ -39,6 +39,13 @@ the ref `start-review.sh` printed (also in `review-ref.txt`), `agent/review/<tag
    step 2 catches dishonest ones.
    Never `sleep` or poll in a foreground call to wait for an agent, the watcher or verify; start
    the watcher or verify with `run_in_background` and act when it exits. The harness wakes you.
+   **Several verifies:** `verify --wait <ref>` queues behind a running verify of the project
+   (it says so once, then prints `chargehand: verify of <sha> started <time>` when the sandbox
+   really starts) and exits 75 if the wait passes `CHARGEHAND_VERIFY_WAIT_MAX_SEC` (default 2 h).
+   Run several as one sequential background job (`verify --wait a; verify --wait b`). Never gate
+   a home-made loop on `pgrep` of a command line your own shell contains: it matches itself and
+   waits forever (lost 2.5 h on 2026-10-27). **A queue is not "running"**: report a verify as
+   running only after its `started` line, and check within 20 minutes of queuing that it came.
 4. `bash scripts/agent-sync.sh --project <p> accept <br>`: fast-forward only, and only to
    the exact commit the last passing verify ran (it refuses if a later fetch moved the branch).
    It then deletes your local `brief/<tag>` once it is merged (it says so).

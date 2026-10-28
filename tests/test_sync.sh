@@ -131,4 +131,39 @@ test_verify_exit_codes_are_told_apart() {
         assert_eq "not recorded" "$(ls "$HARNESS_STATE_DIR/demo/verified" 2>/dev/null | wc -l)" "0"
     done
 }
+# A launcher that answers 3 (busy) for its first N calls, then starts (prints "Verifying", as the
+# real one does only once it holds the lock) and exits with the given code.
+fake_busy_sudo() {
+    mkdir -p "$TEST_TMP/bin"; : > "$TEST_TMP/sudo-calls"
+    printf '#!/bin/sh\necho call >> "%s"\n[ "$(wc -l < "%s")" -le %s ] && exit 3\necho "Verifying abc123 subject"\nexit %s\n' \
+        "$TEST_TMP/sudo-calls" "$TEST_TMP/sudo-calls" "$1" "${2:-0}" > "$TEST_TMP/bin/sudo"; chmod +x "$TEST_TMP/bin/sudo"
+}
+test_verify_wait_queues_behind_a_running_verify_then_runs() {
+    repos; fake_busy_sudo 2 0
+    out="$(CHARGEHAND_VERIFY_POLL_SEC=0 PATH="$TEST_TMP/bin:$PATH" sync verify --wait main 2>&1)"; rc=$?
+    assert_eq "passes once the other verify is done" "$rc" "0"
+    assert_eq "tried until the launcher was free" "$(wc -l < "$TEST_TMP/sudo-calls")" "3"
+    assert_eq "says it waits, once" "$(grep -c "another verify of demo is running; waiting" <<<"$out")" "1"
+    assert_contains "says when it really starts" "$out" "chargehand: verify of $(g -C "$W" rev-parse --short main) started"
+    assert_eq "recorded" "$(ls "$HARNESS_STATE_DIR/demo/verified" | wc -l)" "1"
+}
+test_verify_wait_gives_up_after_its_limit() {
+    repos; fake_busy_sudo 1000 0
+    out="$(CHARGEHAND_VERIFY_POLL_SEC=1 CHARGEHAND_VERIFY_WAIT_MAX_SEC=2 PATH="$TEST_TMP/bin:$PATH" sync verify --wait main 2>&1)"; rc=$?
+    assert_eq "exit 75 when the wait runs out" "$rc" "75"
+    assert_contains "says it gave up" "$out" "gave up waiting"
+    assert_eq "not recorded" "$(ls "$HARNESS_STATE_DIR/demo/verified" 2>/dev/null | wc -l)" "0"
+}
+test_verify_wait_does_not_retry_a_failure() {
+    repos; fake_busy_sudo 0 10
+    out="$(CHARGEHAND_VERIFY_POLL_SEC=0 PATH="$TEST_TMP/bin:$PATH" sync verify --wait main 2>&1)"; rc=$?
+    assert_eq "a failed verify is final" "$rc" "10"
+    assert_eq "ran once" "$(wc -l < "$TEST_TMP/sudo-calls")" "1"
+}
+test_verify_without_wait_still_refuses_at_once() {
+    repos; fake_busy_sudo 1000 0
+    out="$(PATH="$TEST_TMP/bin:$PATH" sync verify main 2>&1)"; rc=$?
+    assert_eq "exit 3 without --wait" "$rc" "3"
+    assert_eq "tried once" "$(wc -l < "$TEST_TMP/sudo-calls")" "1"
+}
 run_tests

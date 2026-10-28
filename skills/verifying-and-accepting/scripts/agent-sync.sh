@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The owner's side of the fork model. Run as yourself.
-# Usage: agent-sync.sh --project <name> push | fetch | diff <ref> | verify [ref] | accept [branch]
+# Usage: agent-sync.sh --project <name> push | fetch | diff <ref> | verify [--wait] [ref] | accept [branch]
 #   push           push the target branch to the read-only mirror the agents pull from
 #   fetch          fetch the agent clone's branches into agent/* and show what's new
 #   diff <ref>     what ref (e.g. agent/brief/<tag>) adds to the target: git diff <target>...<ref>,
@@ -9,13 +9,17 @@
 #                  inside the sandbox (never as you). Exit 0 passed; 10 the build or a suite failed or
 #                  timed out; 3 another verify of the project is running; 4 the sandbox could not
 #                  start; other: could not run (sudo refused, old launcher)
+#                  --wait: queue behind a running verify of the project instead of exit 3 (says
+#                  so once, retries every CHARGEHAND_VERIFY_POLL_SEC, default 30), up to
+#                  CHARGEHAND_VERIFY_WAIT_MAX_SEC (default 7200), then exit 75. Prints
+#                  "chargehand: verify of <sha> started <time>" the moment the launcher really starts.
 #   accept [br]    fast-forward the target branch to agent/<br> (default the target), push the mirror,
 #                  delete your local brief/<tag> if it is now merged
 # Never build, test or run agent-authored code as yourself before accept. Reading diffs is safe.
 set -euo pipefail
 HARNESS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 . "$HARNESS_ROOT/scripts/lib/harness.sh"
-usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; }
 [ "${1:-}" = --project ] && [ "$#" -ge 2 ] || { usage; exit 2; }
 project="$2"; shift 2
 cmd="${1:-}"; [ "$#" -gt 0 ] && shift
@@ -42,11 +46,32 @@ diff)
     [ -n "${1:-}" ] || die "usage: agent-sync.sh --project $project diff <ref>"
     git --no-pager diff --no-color --no-ext-diff "$target...$1" | agent_text ;;
 verify)
+    wait=0; [ "${1:-}" = --wait ] && { wait=1; shift; }
     ref="${1:-agent/$target}"
     sha="$(git rev-parse --verify "$ref^{commit}")"
-    rc=0
-    sudo -n -u "$(config_get agent_user opencode)" "$(config_get launcher /usr/local/bin/chargehand-sandbox)" \
-        --verify --project "$project" "$sha" 2>&1 | agent_text || rc="${PIPESTATUS[0]}"   # test output is agent-authored text
+    # The launcher prints "Verifying ..." only once it holds the project's verify lock, so that line
+    # is the real start: announce it, so a queued verify that never starts is visible as such.
+    announce_start() {
+        local line started=0
+        while IFS= read -r line; do
+            if [ "$started" = 0 ] && [[ "$line" == Verifying\ * ]]; then
+                echo "chargehand: verify of ${sha:0:7} started $(date +%H:%M)"; started=1
+            fi
+            printf '%s\n' "$line"
+        done
+    }
+    poll="${CHARGEHAND_VERIFY_POLL_SEC:-30}"; deadline=$(( $(date +%s) + ${CHARGEHAND_VERIFY_WAIT_MAX_SEC:-7200} )); told=0
+    while true; do
+        rc=0
+        sudo -n -u "$(config_get agent_user opencode)" "$(config_get launcher /usr/local/bin/chargehand-sandbox)" \
+            --verify --project "$project" "$sha" 2>&1 | agent_text | announce_start || rc="${PIPESTATUS[0]}"   # test output is agent-authored text
+        [ "$rc" = 3 ] && [ "$wait" = 1 ] || break
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+            echo "chargehand: gave up waiting for the other verify of $project (CHARGEHAND_VERIFY_WAIT_MAX_SEC); verify not run" >&2; exit 75
+        fi
+        [ "$told" = 1 ] || { echo "chargehand: another verify of $project is running; waiting $(date +%H:%M)" >&2; told=1; }
+        sleep "$poll"
+    done
     case "$rc" in
         0) ;;
         10) echo "chargehand: verify FAILED: the build or a suite failed or timed out (see above)" >&2; exit 10 ;;
