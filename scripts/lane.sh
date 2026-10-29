@@ -114,9 +114,10 @@ verdict() {
             if [ "$idx" != "$n" ] || ! [[ "$code" =~ ^[0-9]+$ && "$count" =~ ^[0-9]+$ && -z "$extra" ]]; then
                 echo "suite $n: malformed result line"; bad=1; continue
             fi
-            if [ "$code" -ne 0 ]; then echo "suite $n: exit code $code"; bad=1
-            elif [ "$count" -eq 0 ]; then echo "suite $n: no summary line"; bad=1
-            elif [ "$count" -ne 1 ]; then echo "suite $n: $count summary lines"; bad=1; fi
+            # Strings, not integers: an over-long number makes [ -ne ] fail with 2, which reads as false.
+            if [ "$code" != 0 ]; then echo "suite $n: exit code $code"; bad=1
+            elif [ "$count" = 0 ]; then echo "suite $n: no summary line"; bad=1
+            elif [ "$count" != 1 ]; then echo "suite $n: $count summary lines"; bad=1; fi
         done < "$out/suites.txt"
     fi
     if [ "$n" -gt "$want" ]; then echo "suites.txt has $n results for $want suites"; bad=1; fi

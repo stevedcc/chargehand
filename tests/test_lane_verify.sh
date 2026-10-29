@@ -277,6 +277,22 @@ test_verdict_fails_on_extra_results() {
     assert_eq "exit" "$RC" "10"
     assert_contains "message" "$OUT" "suites.txt has 3 results for 2 suites"
 }
+test_verdict_rejects_overflowing_malformed_and_misindexed_lines() {
+    lane_setup
+    SUITES_TXT=$'1 99999999999999999999 1\n2 0 1' verify
+    assert_eq "overflowing exit code" "$RC" "10"
+    lane_setup
+    SUITES_TXT=$'1 0 99999999999999999999\n2 0 1' verify
+    assert_eq "overflowing count" "$RC" "10"
+    lane_setup
+    SUITES_TXT=$'1 0 x\n2 0 1' verify
+    assert_eq "malformed line" "$RC" "10"
+    assert_contains "malformed message" "$OUT" "suite 1: malformed result line"
+    lane_setup
+    SUITES_TXT=$'2 0 1\n1 0 1' verify
+    assert_eq "index mismatch" "$RC" "10"
+    assert_contains "mismatch message" "$OUT" "suite 1: malformed result line"
+}
 test_verdict_passes_on_clean_summaries() {
     lane_setup
     SUITES_TXT=$'1 0 1\n2 0 1' verify
