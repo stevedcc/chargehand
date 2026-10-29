@@ -1,0 +1,25 @@
+{
+  "runtime": "podman",
+  "cpus": 3,
+  "memory": "14g",
+  "repos_dir": "~/lane/repos",
+  "work_dir": "~/lane/work",
+  "verify_timeout_min": 90,
+  "projects": {
+    "example": {
+      "runner_image": "registry.example/runner-dotnet@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "restore": "dotnet restore Example.slnx --locked-mode",
+      "build": "dotnet build Example.slnx --no-restore -nologo -v quiet",
+      "tests": ["dotnet test tests/Example.Tests --no-build"],
+      "test_filter": "Passed!|Failed!|^\\s+Failed \\S+ \\[|Error Message",
+      "summary_pattern": "^(Passed|Failed)!",
+      "env": { "EXAMPLE_TEST_POSTGRES": "Host=db;Username=postgres;Password=postgres" },
+      "services": [
+        { "name": "db", "image": "docker.io/library/postgres@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "memory": "1g",
+          "env": { "POSTGRES_PASSWORD": "postgres" },
+          "ready": ["pg_isready", "-U", "postgres"], "ready_timeout_sec": 60 }
+      ]
+    }
+  }
+}
