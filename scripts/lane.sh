@@ -5,7 +5,8 @@
 #   Builds and tests <sha> from <repos_dir>/<name>.git in an untrusted runner container: restore
 #   with outbound network, then build and suites on a private internal network with the project's
 #   services. Config: $HARNESS_CONFIG_DIR/lane.json (shape: examples/lane.json).
-#   Exit 0 passed; 10 the build or a suite failed or timed out (or a service never got ready);
+#   Exit 0 passed; 10 the build or a suite failed or timed out (or a service never got ready, or a
+#   file a service gets from the commit is missing there or not a regular file);
 #   3 another verify is running on this machine; 4 the container runtime is unavailable;
 #   2 usage or config (also: the commit is not in the lane's repo); other: could not run.
 #   Stdout: "Verifying <sha7> <subject>" once the machine lock is held, the runner's output, then
@@ -16,7 +17,7 @@ LANE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
 . "$LANE_LIB/lane.sh"
 . "$LANE_LIB/runtime.sh"
 
-usage() { sed -n '4,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '4,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 ROLE_LABEL=chargehand.role=verify   # on every container and network the lane creates; the leftover sweep keys on it
 cant_run() { echo "chargehand-lane: $*" >&2; exit 1; }
 runtime_unavailable() { echo "chargehand-lane: the container runtime is unavailable ($CHARGEHAND_RUNTIME)" >&2; exit 4; }
@@ -200,16 +201,34 @@ verify() {
     # 6. Services, named after themselves (their host names on the network), then wait for each.
     # Every rt_run closes fd 9: a runtime helper that outlives this process (conmon, a network
     # namespace holder) must not keep the machine lock.
-    local count i name image envs readies=() names=() timeouts=() ready tmo deadline
+    # A service's files (its config, a login page) come from the commit: read from git's objects,
+    # never from the checkout's folder, so a symlink in the commit cannot hand a service the lane
+    # user's own files. Each is copied under the run dir and mounted read-only; lane_check has
+    # already limited both paths to plain characters without "..".
+    local count i j name image envs files target source fdir entry readies=() names=() timeouts=() ready tmo deadline
     count="$(lane_project_get "$project" '.services | length' 0)" || exit 2
     for ((i = 0; i < count; i++)); do
         name="$(lane_project_get "$project" ".services[$i].name")" || exit 2
         valid_name "$name" || die "bad service name \"$name\" in project $project"
         image="$(lane_project_get "$project" ".services[$i].image")" || exit 2
         mapfile -t envs < <(env_args "$(lane_project_get "$project" ".services[$i].env" '{}')")
+        files=() j=0 fdir="$RUN_DIR/files/$name"
+        while IFS=$'\t' read -r target source; do
+            [ -n "$target" ] || continue
+            entry="$(git -C "$src" ls-tree --format='%(objectmode) %(objecttype)' "$sha" -- "$source" 2>&1)" \
+                || cant_run "could not list $source in $sha7 for service $name: $entry"
+            case "$entry" in
+                "100644 blob" | "100755 blob") ;;
+                *) echo "service $name: $source is not a regular file in $sha7"; exit 10 ;;
+            esac
+            mkdir -p "$fdir" && git -C "$src" cat-file blob "$sha:$source" > "$fdir/$j" && chmod 644 "$fdir/$j" \
+                || cant_run "could not copy $source for service $name"
+            files+=(--mount "$fdir/$j:$target:ro,Z")
+            j=$((j + 1))
+        done < <(lane_project_get "$project" ".services[$i].files" '{}' | jq -r 'to_entries[] | "\(.key)\t\(.value)"')
         STARTED+=("$name")
         rt_run "$name" "$image" "$NETWORK" 1 "$(lane_project_get "$project" ".services[$i].memory" 1g)" \
-            "${envs[@]}" --label "$ROLE_LABEL" -- >/dev/null 9>&- || cant_run "could not start service $name"
+            "${files[@]}" "${envs[@]}" --label "$ROLE_LABEL" -- >/dev/null 9>&- || cant_run "could not start service $name"
         record_digest "$name" "$image"
         names+=("$name")
         readies+=("$(lane_project_get "$project" ".services[$i].ready" '[]')")

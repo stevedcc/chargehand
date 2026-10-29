@@ -63,6 +63,29 @@ test_service_memory_optional() {
     assert_eq "non-string memory refused" "$LANE_RC" "2"
     assert_contains "memory msg" "$out" "memory of service db must be a string"
 }
+test_service_files_are_checked() {
+    use_example '.projects.example.services[0].files = {"/app/login.html": "dev/login.html", "/app/config.json": "dev/mock-oauth2-config.json"}'
+    lane lane_check; assert_eq "files accepted" "$LANE_RC" "0"
+    use_example '.projects.example.services[0].files = ["dev/login.html"]'; lane lane_check; out="$LANE_OUT"
+    assert_eq "list refused" "$LANE_RC" "2"
+    assert_contains "list msg" "$out" "example: files of service db must be an object of strings"
+    local target source
+    for target in "app/login.html" "/app/../etc/passwd" "/app/a,b" "/app/a:b" "/" "/app/x y" "/." "/app/./x"; do
+        use_example ".projects.example.services[0].files = {\"$target\": \"dev/login.html\"}"; lane lane_check; out="$LANE_OUT"
+        assert_eq "target $target refused" "$LANE_RC" "2"
+        assert_contains "target $target msg" "$out" "example: file target $target of service db must be an absolute path (letters, digits, . _ - /) without .."
+    done
+    for source in "/etc/passwd" "../secret" "dev/../../x" "dev/a b" "" "dev/x:y" "." "./x"; do
+        use_example ".projects.example.services[0].files = {\"/app/f\": \"$source\"}"; lane lane_check; out="$LANE_OUT"
+        assert_eq "source '$source' refused" "$LANE_RC" "2"
+        assert_contains "source '$source' msg" "$out" "example: file source $source of service db must be a path in the repo (letters, digits, . _ - /) without .."
+    done
+    # jq's $ matches before a final newline; a path must not end in one.
+    use_example '.projects.example.services[0].files = {"/app/f\n": "dev/login.html"}'; lane lane_check
+    assert_eq "target with a trailing newline refused" "$LANE_RC" "2"
+    use_example '.projects.example.services[0].files = {"/app/f": "dev/login.html\n"}'; lane lane_check
+    assert_eq "source with a trailing newline refused" "$LANE_RC" "2"
+}
 test_missing_file_and_bad_json() {
     lane lane_check; out="$LANE_OUT"; assert_eq "missing" "$LANE_RC" "2"; assert_contains "missing msg" "$out" "lane.json"
     echo '{' > "$HARNESS_CONFIG_DIR/lane.json"; lane lane_check; out="$LANE_OUT"

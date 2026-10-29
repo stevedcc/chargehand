@@ -79,8 +79,16 @@ The Docker path is fake-tested only (no real Docker run yet); on Docker the runn
   the lane's `env` for the project and pointing at a `services` entry (see `examples/lane.json`).
   Until the project supports it, only the build can run on a lane.
 - The E2E additionally needs `start-local.sh --e2e` to take the Postgres host and the mock IdP's
-  URL from the environment. Until that lands, the lane's recipe runs the build and the API and
-  Web suites only.
+  URL from the environment (Croft brief 19a: exported `ConnectionStrings__BlogDb` and
+  `Oidc__Authority` win over `.env`). Until that lands, the lane's recipe runs the build and the
+  API and Web suites only.
+- **Files a service needs from the repo** (the mock IdP's config and login page): a service's
+  `files` maps an absolute container path to a path in the commit, for example
+  `"files": {"/app/config.json": "dev/mock-oauth2-config.json", "/app/login.html": "dev/login.html"}`.
+  The lane reads each one from git's objects, never from the checkout's folder, and mounts a copy
+  read-only. A path that is missing, a folder or a symlink in the commit fails the verify (exit 10);
+  `lane_check` allows only plain paths without `..`. Each file is a single-file bind mount, tested
+  on Podman only; Apple's `container` may support directory mounts only (unverified).
 - A `summary_pattern` per project in `lane.json` (required, non-empty; `lane_check` refuses a lane
   without it): an extended regex matching each suite's one summary line (`examples/lane.json` has
   the dotnet one). A suite passes only with exit code 0 and exactly one matching line.

@@ -6,7 +6,9 @@ D0=0000000000000000000000000000000000000000000000000000000000000000
 # with one commit that sits only under refs/verify/ (as the requester pushes it), and the fake
 # runtime behind a wrapper: `wait` on the suites runner prints $SUITES_RC (default 0), and the
 # suites `run` copies its /recipe mount to $TEST_TMP/recipe-copy before the run dir is removed
-# and writes $SUITES_TXT (default: two clean suites) to suites.txt in its /out mount.
+# and writes $SUITES_TXT (default: two clean suites) to suites.txt in its /out mount. $SEED, when
+# set, runs in the seed repo before its commit (files for the commit); the `run` of service db
+# copies each of its mounts to $TEST_TMP/db-mounts/<container path with / as _>.
 lane_setup() {
     jq -n --arg d "$D0" '{
         runtime: "podman", cpus: 3, memory: "6g",
@@ -25,6 +27,7 @@ lane_setup() {
         | jq "${1:-.}" > "$HARNESS_CONFIG_DIR/lane.json"
     local seed="$TEST_TMP/seed" repo="$HOME/lane/repos/demo.git"
     git init -q "$seed"
+    [ -z "${SEED:-}" ] || ( cd "$seed" && eval "$SEED" ) && git -C "$seed" add -A
     git -C "$seed" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m "demo subject"
     SHA="$(git -C "$seed" rev-parse HEAD)"; SHA7="${SHA:0:7}"
     git init -q --bare "$repo"
@@ -37,6 +40,12 @@ if [ "$1" = run ] && [[ " $* " == *" --name chv-"*"-suites "* ]]; then
     prev=; for a in "$@"; do
         if [ "$prev" = -v ] && [[ "$a" == *:/recipe:ro* ]]; then cp -r "${a%%:*}" "$TEST_TMP/recipe-copy"; fi
         if [ "$prev" = -v ] && [[ "$a" == *:/out || "$a" == *:/out:* ]]; then printf '%s\n' "${SUITES_TXT-$(printf '1 0 1\n2 0 1')}" > "${a%%:*}/suites.txt"; fi
+        prev="$a"
+    done
+fi
+if [ "$1" = run ] && [[ " $* " == *" --name db "* ]]; then
+    prev=; for a in "$@"; do
+        if [ "$prev" = -v ]; then t="${a#*:}"; t="${t%%:*}"; mkdir -p "$TEST_TMP/db-mounts"; cp -P "${a%%:*}" "$TEST_TMP/db-mounts/${t//\//_}"; fi
         prev="$a"
     done
 fi
@@ -352,4 +361,68 @@ test_stream_that_never_ends_is_stopped_after_the_drain() {
     assert_eq "ends promptly" "$(( SECONDS - t0 < 10 ))" "1"
 }
 
+test_service_files_come_from_the_commit_read_only() {
+    SEED='mkdir dev && printf "<html>login</html>\n" > dev/login.html && printf "{}\n" > dev/idp.json' \
+        lane_setup '.projects.demo.services[0].files = {"/app/login.html": "dev/login.html", "/app/config.json": "dev/idp.json"}'
+    verify
+    assert_eq "exit" "$RC" "0"
+    local run; run="$(grep -- '^podman run .* --name db ' "$TEST_TMP/rt.log")"
+    assert_contains "login mounted read-only" "$run" "-v $HOME/lane/work/run-$SHA7/files/db/0:/app/login.html:ro,Z"
+    assert_contains "config mounted read-only" "$run" "-v $HOME/lane/work/run-$SHA7/files/db/1:/app/config.json:ro,Z"
+    assert_eq "login content" "$(cat "$TEST_TMP/db-mounts/_app_login.html")" "<html>login</html>"
+    assert_eq "config content" "$(cat "$TEST_TMP/db-mounts/_app_config.json")" "{}"
+}
+test_service_file_missing_from_the_commit_fails() {
+    lane_setup '.projects.demo.services[0].files = {"/app/login.html": "dev/login.html"}'
+    verify
+    assert_eq "exit" "$RC" "10"
+    assert_contains "message" "$OUT" "service db: dev/login.html is not a regular file in $SHA7"
+    assert_not_contains "service not started" "$(rt_log)" "--name db "
+    assert_eq "run dir removed last" "$(rt_log | tail -1)" "podman unshare rm -rf $HOME/lane/work/run-$SHA7"
+}
+test_service_file_that_is_a_symlink_is_refused() {
+    # A commit could point the file at the lane user's own files; git's tree says it is a link.
+    SEED='mkdir dev && ln -s "$HOME/.ssh/id_ed25519" dev/login.html' \
+        lane_setup '.projects.demo.services[0].files = {"/app/login.html": "dev/login.html"}'
+    mkdir -p "$HOME/.ssh"; echo "PRIVATE KEY" > "$HOME/.ssh/id_ed25519"
+    verify
+    assert_eq "exit" "$RC" "10"
+    assert_contains "message" "$OUT" "service db: dev/login.html is not a regular file in $SHA7"
+    assert_not_contains "service not started" "$(rt_log)" "--name db "
+}
+test_service_file_under_a_symlinked_folder_is_refused() {
+    # The folder, not the file, is the link: a check of the file alone in the checkout would pass.
+    SEED='mkdir -p "$HOME/.ssh" && echo "PRIVATE KEY" > "$HOME/.ssh/login.html" && ln -s "$HOME/.ssh" dev' \
+        lane_setup '.projects.demo.services[0].files = {"/app/login.html": "dev/login.html"}'
+    verify
+    assert_eq "exit" "$RC" "10"
+    assert_contains "message" "$OUT" "service db: dev/login.html is not a regular file in $SHA7"
+    assert_not_contains "service not started" "$(rt_log)" "--name db "
+}
+test_service_file_that_is_executable_is_accepted() {
+    SEED='mkdir dev && printf "#!/bin/sh\n" > dev/start.sh && chmod +x dev/start.sh' \
+        lane_setup '.projects.demo.services[0].files = {"/app/start.sh": "dev/start.sh"}'
+    verify
+    assert_eq "exit" "$RC" "0"
+    assert_eq "content" "$(cat "$TEST_TMP/db-mounts/_app_start.sh")" "#!/bin/sh"
+}
+test_service_file_git_failure_is_could_not_run() {
+    # A lane whose git cannot list the commit (too old for --format, a broken repo) must not blame the commit.
+    SEED='mkdir dev && echo x > dev/login.html' \
+        lane_setup '.projects.demo.services[0].files = {"/app/login.html": "dev/login.html"}'
+    local real_git; real_git="$(command -v git)"
+    printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = ls-tree ] && { echo "fatal: broken" >&2; exit 128; }; done\nexec %q "$@"\n' "$real_git" > "$TEST_TMP/bin/git"
+    chmod +x "$TEST_TMP/bin/git"
+    verify
+    assert_eq "exit" "$RC" "1"
+    assert_contains "message" "$OUT" "could not list dev/login.html in $SHA7 for service db"
+    assert_not_contains "not blamed on the commit" "$OUT" "is not a regular file"
+}
+test_service_file_that_is_a_directory_is_refused() {
+    SEED='mkdir -p dev/login.html && touch dev/login.html/x' \
+        lane_setup '.projects.demo.services[0].files = {"/app/login.html": "dev/login.html"}'
+    verify
+    assert_eq "exit" "$RC" "10"
+    assert_contains "message" "$OUT" "service db: dev/login.html is not a regular file in $SHA7"
+}
 run_tests
