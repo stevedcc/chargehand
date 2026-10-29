@@ -41,6 +41,9 @@ fi
 if [ "$1" = wait ] && [ -n "${FAKE_WAIT_BLOCK:-}" ] && [[ "$2" == chv-*-"$FAKE_WAIT_BLOCK" ]]; then
     echo "podman $*" >> "$TEST_TMP/rt.log"; exec sleep 60   # a runner that never stops
 fi
+if [ "$1" = logs ] && [ -n "${FAKE_LOGS_BLOCK:-}" ]; then
+    echo "podman $*" >> "$TEST_TMP/rt.log"; echo "${FAKE_RT_OUT_logs:-}"; exec sleep 60   # a stream that never ends
+fi
 if [ "$1" = wait ] && [[ "$2" == chv-*-suites ]]; then export FAKE_RT_OUT_wait="${SUITES_RC:-0}"; fi
 exec "$TEST_TMP/real/podman" "$@"
 EOF
@@ -216,6 +219,24 @@ test_suites_deadline_counts_every_test() {
     assert_eq "exit" "$RC" "10"
     assert_contains "message (0.02 x (1 + 2 tests))" "$OUT" "TIMED OUT (controller) after 0.06 min: suites"
     assert_contains "runner removed" "$(rt_log)" "podman rm -f chv-$SHA7-suites"
+}
+test_failed_wait_stops_the_stream_at_once() {
+    lane_setup
+    local t0=$SECONDS
+    FAKE_LOGS_BLOCK=1 FAKE_RT_RC_wait=1 verify
+    assert_eq "exit (could not run)" "$RC" "1"
+    assert_contains "message" "$OUT" "could not wait for chv-$SHA7-restore"
+    assert_eq "ends promptly" "$(( SECONDS - t0 < 10 ))" "1"
+    assert_contains "runner removed" "$(rt_log)" "podman rm -f chv-$SHA7-restore"
+}
+test_stream_that_never_ends_is_stopped_after_the_drain() {
+    lane_setup
+    local t0=$SECONDS
+    CHARGEHAND_LANE_DRAIN_SEC=1 FAKE_LOGS_BLOCK=1 FAKE_RT_OUT_logs='still streaming' SUITES_RC=1 verify
+    assert_eq "exit (the verdict)" "$RC" "10"
+    assert_contains "output kept" "$OUT" "still streaming"
+    assert_contains "says so" "$OUT" "output stream of chv-$SHA7-suites did not end after 1 s"
+    assert_eq "ends promptly" "$(( SECONDS - t0 < 10 ))" "1"
 }
 
 run_tests

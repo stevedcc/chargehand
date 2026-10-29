@@ -52,9 +52,24 @@ cleanup() {
     exit "$rc"
 }
 
+# stop_follow: ends the output stream, the runtime CLI included: an orphaned `logs -f` would keep
+# this process's stdout (the requester's SSH session) open.
 stop_follow() {
     [ -n "$FOLLOW_PID" ] || return 0
-    kill "$FOLLOW_PID" 2>/dev/null; wait "$FOLLOW_PID" 2>/dev/null; FOLLOW_PID=""
+    pkill -P "$FOLLOW_PID" 2>/dev/null; kill "$FOLLOW_PID" 2>/dev/null; wait "$FOLLOW_PID" 2>/dev/null; FOLLOW_PID=""
+}
+
+# drain_follow NAME: once the runner has stopped, gives its stream DRAIN_SEC to end, then stops it.
+drain_follow() {
+    local end=$((SECONDS + DRAIN_SEC))
+    while kill -0 "$FOLLOW_PID" 2>/dev/null && [ "$SECONDS" -lt "$end" ]; do sleep 0.2; done
+    if kill -0 "$FOLLOW_PID" 2>/dev/null; then
+        echo "chargehand-lane: the output stream of $1 did not end after $DRAIN_SEC s; stopped it" >&2
+        stop_follow
+        return
+    fi
+    wait "$FOLLOW_PID" || echo "chargehand-lane: could not stream the output of $1" >&2
+    FOLLOW_PID=""
 }
 
 # minutes EXPR: awk arithmetic on minutes (fractions allowed), printed short (0.06, 95).
@@ -75,10 +90,11 @@ wait_runner() {
         echo "TIMED OUT (controller) after $mins min: $phase"
         exit 10
     fi
-    # The stream ends when the container stops: all its output is out before the verdict.
-    wait "$FOLLOW_PID" || echo "chargehand-lane: could not stream the output of $c" >&2
-    FOLLOW_PID=""
-    [ "$rc" -eq 0 ] || cant_run "could not wait for $c"
+    # A failed wait says nothing about the container, which may still run: never wait on its stream.
+    [ "$rc" -eq 0 ] || { stop_follow; cant_run "could not wait for $c"; }
+    # The stream ends when the container stops, so its output is out before the verdict; bounded all
+    # the same, in case the runtime's `logs -f` does not end.
+    drain_follow "$c"
     [[ "$code" =~ ^[0-9]+$ ]] || cant_run "no exit code from $c"
     RUNNER_RC="$code"
 }
@@ -107,6 +123,9 @@ verify() {
     # The controller's grace on top of the runner's own timeouts (ruling R7: 5 min). Tests shorten it.
     local grace_sec="${CHARGEHAND_LANE_GRACE_SEC:-300}"
     [[ "$grace_sec" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "CHARGEHAND_LANE_GRACE_SEC must be a number of seconds"
+    # How long a stopped runner's output stream may take to end. Tests shorten it.
+    DRAIN_SEC="${CHARGEHAND_LANE_DRAIN_SEC:-30}"
+    [[ "$DRAIN_SEC" =~ ^[0-9]+$ ]] || die "CHARGEHAND_LANE_DRAIN_SEC must be a whole number of seconds"
 
     # 1. One verify at a time on this machine, for the whole verify.
     mkdir -p "$work_dir" || cant_run "cannot create $work_dir"
