@@ -41,6 +41,8 @@ LOCAL_LIST="[{\"Names\": [\"$TAG\"], \"Digest\": \"sha256:$E64\",
 test_usage_errors_exit_2() {
     fake_rt
     build; assert_eq "no arguments" "$RC" "2"
+    assert_contains "usage ends with the exit codes" "$ERR" "Exit 0 built (and pushed); 2 usage"
+    assert_eq "usage prints no code" "$(grep -c 'set -uo\|IMAGES_DIR' <<<"$ERR")" "0"
     build other --tag x; assert_eq "unknown image" "$RC" "2"
     build runner --sdk 11.0.100 --playwright 1.64.1 --browsers chromium; assert_eq "no tag" "$RC" "2"
     build runner --sdk "11.0;x" --playwright 1.64.1 --browsers chromium --tag t; assert_eq "bad sdk" "$RC" "2"

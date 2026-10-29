@@ -15,7 +15,7 @@ set -uo pipefail
 IMAGES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$IMAGES_DIR/../scripts/lib/runtime.sh"
 
-usage() { sed -n '4,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '4,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
 [ "${1:-}" = runner ] || usage
 shift
