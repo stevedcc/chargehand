@@ -219,6 +219,12 @@ test_verdict_fails_when_suites_are_missing() {
     assert_eq "second suite missing" "$RC" "10"
     assert_contains "message" "$OUT" "suite 2: no result"
 }
+test_verdict_fails_on_extra_results() {
+    lane_setup
+    SUITES_TXT=$'1 0 1\n2 0 1\n3 0 1' verify
+    assert_eq "exit" "$RC" "10"
+    assert_contains "message" "$OUT" "suites.txt has 3 results for 2 suites"
+}
 test_verdict_passes_on_clean_summaries() {
     lane_setup
     SUITES_TXT=$'1 0 1\n2 0 1' verify

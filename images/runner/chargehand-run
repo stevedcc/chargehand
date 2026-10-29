@@ -23,18 +23,22 @@ need timeout_min
 TIMEOUT_MIN="$(cat "$RECIPE/timeout_min")"
 [[ "$TIMEOUT_MIN" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "chargehand-run: bad timeout_min \"$TIMEOUT_MIN\"" >&2; exit 2; }
 
-# run_limited "<command>": a failed or timed-out command returns non-zero (124 for a timeout).
-run_limited() { timeout -k 30 "${TIMEOUT_MIN}m" bash -c "$1"; }
+# run_limited "<command>": a failed or timed-out command returns non-zero (124 or 137 for a timeout).
+# A command that ignores SIGTERM is killed after KILL_AFTER seconds and exits 137, also a timeout.
+KILL_AFTER="${CHARGEHAND_RUNNER_KILL_AFTER_SEC:-30}"
+[[ "$KILL_AFTER" =~ ^[0-9]+$ ]] || { echo "chargehand-run: bad CHARGEHAND_RUNNER_KILL_AFTER_SEC" >&2; exit 2; }
+run_limited() { timeout -k "$KILL_AFTER" "${TIMEOUT_MIN}m" bash -c "$1"; }
+is_timeout() { [ "$1" -eq 124 ] || [ "$1" -eq 137 ]; }
 # timed_out RC "<command>": says so after the pipeline (the suite filter would drop the message).
 timed_out() {
-    if [ "$1" -eq 124 ]; then echo "TIMED OUT after $TIMEOUT_MIN min: $2" | tee -a "$OUT/full.log" "$OUT/filtered.txt"; fi
+    if is_timeout "$1"; then echo "TIMED OUT after $TIMEOUT_MIN min: $2" | tee -a "$OUT/full.log" "$OUT/filtered.txt"; fi
 }
 
 if [ "$PHASE" = restore ]; then
     need restore
     cmd="$(cat "$RECIPE/restore")" rc=0
     run_limited "$cmd" || rc=$?
-    if [ "$rc" -eq 124 ]; then echo "TIMED OUT after $TIMEOUT_MIN min: $cmd"; fi
+    if is_timeout "$rc"; then echo "TIMED OUT after $TIMEOUT_MIN min: $cmd"; fi
     [ "$rc" -eq 0 ] || exit 10
     exit 0
 fi

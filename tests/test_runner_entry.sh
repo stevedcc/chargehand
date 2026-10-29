@@ -37,6 +37,17 @@ test_runner_timeout_is_a_failure() {
     assert_contains "message" "$OUT" "TIMED OUT after 0.02 min: sleep 5"
     assert_eq "suites.txt" "$(cat "$O/suites.txt")" "1 124 0"
 }
+test_runner_timeout_that_ignores_sigterm_is_still_a_timeout() {
+    TIMEOUT_MIN=0.02 recipe "true" "trap '' TERM; sleep 5"
+    CHARGEHAND_RUNNER_KILL_AFTER_SEC=1 run_runner suites
+    assert_eq "exit" "$RC" "10"
+    assert_contains "message" "$OUT" "TIMED OUT after 0.02 min: trap '' TERM; sleep 5"
+    assert_eq "suites.txt records the kill" "$(cat "$O/suites.txt")" "1 137 0"
+    printf '%s\n' "trap '' TERM; sleep 5" > "$R/restore"
+    CHARGEHAND_RUNNER_KILL_AFTER_SEC=1 run_runner restore
+    assert_eq "restore exit" "$RC" "10"
+    assert_contains "restore message" "$OUT" "TIMED OUT after 0.02 min: trap '' TERM; sleep 5"
+}
 test_runner_passes_with_one_summary_per_suite() {
     recipe "true" "echo 'Passed!  - Failed: 0, Passed: 3'" "echo 'Passed!  - Failed: 0, Passed: 1'"
     run_runner suites

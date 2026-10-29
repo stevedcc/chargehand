@@ -119,6 +119,7 @@ verdict() {
             elif [ "$count" -ne 1 ]; then echo "suite $n: $count summary lines"; bad=1; fi
         done < "$out/suites.txt"
     fi
+    if [ "$n" -gt "$want" ]; then echo "suites.txt has $n results for $want suites"; bad=1; fi
     while [ "$n" -lt "$want" ]; do n=$((n + 1)); echo "suite $n: no result"; bad=1; done
     [ "$bad" -eq 0 ] && return 0
     return 10
