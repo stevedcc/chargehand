@@ -4,7 +4,7 @@
 # tests/fixtures/lane-demo/Containerfile (not the runner image) and the demo project next to it.
 # Opt-in, it is slow and needs the network: HARNESS_TESTS_REAL_RUNTIME=1 and the current user's
 # rootless Podman socket. Run it alone (where there is a machine-wide suite lock, through it).
-# The lane removes every container and network labelled chargehand=1, so this file refuses to run
+# The lane removes every container and network labelled chargehand.role=verify, so this file refuses to run
 # while any exist: they would belong to someone else.
 if [ "${HARNESS_TESTS_REAL_RUNTIME:-0}" != 1 ] || ! command -v podman >/dev/null \
     || [ ! -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock" ]; then
@@ -14,12 +14,12 @@ fi
 [ "$(podman info --format '{{.Host.Security.Rootless}}')" = true ] \
     || { echo "  FAIL  Podman is not rootless; these tests run only on a rootless Podman"; exit 1; }
 
-# labelled: every container and network labelled chargehand=1, one name per line.
+# labelled: every container and network labelled chargehand.role=verify, one name per line.
 labelled() {
-    podman ps -a --filter label=chargehand=1 --format '{{.Names}}'
-    podman network ls --filter label=chargehand=1 --format '{{.Name}}'
+    podman ps -a --filter label=chargehand.role=verify --format '{{.Names}}'
+    podman network ls --filter label=chargehand.role=verify --format '{{.Name}}'
 }
-[ -z "$(labelled)" ] || { echo "  FAIL  containers or networks labelled chargehand=1 exist already: $(labelled | tr '\n' ' ')"; exit 1; }
+[ -z "$(labelled)" ] || { echo "  FAIL  containers or networks labelled chargehand.role=verify exist already: $(labelled | tr '\n' ' ')"; exit 1; }
 ! podman container exists db || { echo "  FAIL  a container named db exists already (the demo service's name)"; exit 1; }
 
 # setup_home gives every test a throwaway HOME; Podman keeps its storage under HOME, so point it at

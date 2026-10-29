@@ -13,6 +13,10 @@ test_podman_internal_network() {
     fake_rt; CHARGEHAND_RUNTIME=podman rt_network_create v1 yes
     assert_eq "podman network create" "$(rt_log)" "podman network create --internal --label chargehand=1 v1"
 }
+test_network_create_takes_extra_labels() {
+    fake_rt; CHARGEHAND_RUNTIME=docker rt_network_create v1 no chargehand.role=verify
+    assert_eq "extra label" "$(rt_log)" "docker network create --label chargehand=1 --label chargehand.role=verify v1"
+}
 test_docker_run_flags() {
     fake_rt; CHARGEHAND_RUNTIME=docker rt_run r1 img@sha256:aa net1 2 6g --mount /a:/w --mount /b:/o:ro \
         --env X=1 --label chargehand.verify=s1 -- bash -lc go

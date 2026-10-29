@@ -116,11 +116,13 @@ test_runner_phases_use_the_right_networks() {
     assert_contains "suites out mount" "$suites" "-v $HOME/lane/work/run-$SHA7/out:/out:Z "
     assert_contains "suites project env" "$suites" "-e DEMO_DB=Host=db"
     assert_contains "runner limits" "$suites" "--cpus 3 --memory 6g"
-    assert_contains "network is internal" "$(rt_log)" "podman network create --internal --label chargehand=1 chv-$SHA7"
+    assert_contains "suites carry the role label" "$suites" "--label chargehand.role=verify "
+    assert_contains "restore carries the role label" "$(grep -- '--name chv-.*-restore' "$TEST_TMP/rt.log")" "--label chargehand.role=verify "
+    assert_contains "network is internal" "$(rt_log)" "podman network create --internal --label chargehand=1 --label chargehand.role=verify chv-$SHA7"
 }
 test_service_runs_on_the_run_network_and_is_polled() {
     lane_setup; verify
-    assert_contains "service run" "$(rt_log)" "podman run -d --name db --network chv-$SHA7 --cpus 1 --memory 1g -e POSTGRES_PASSWORD=pw --label chargehand=1 registry.example/postgres@sha256:$D0"
+    assert_contains "service run" "$(rt_log)" "podman run -d --name db --network chv-$SHA7 --cpus 1 --memory 1g -e POSTGRES_PASSWORD=pw --label chargehand=1 --label chargehand.role=verify registry.example/postgres@sha256:$D0"
     assert_contains "ready probe" "$(rt_log)" "podman exec db pg_isready -U postgres"
     local svc restore
     svc="$(grep -n "^podman run .* --name db " "$TEST_TMP/rt.log" | cut -d: -f1)"
@@ -179,7 +181,7 @@ test_leftovers_are_removed_first() {
     local rm_old net
     rm_old="$(grep -n '^podman rm -f old-runner$' "$TEST_TMP/rt.log" | head -1 | cut -d: -f1)"
     net="$(grep -n '^podman network create ' "$TEST_TMP/rt.log" | head -1 | cut -d: -f1)"
-    assert_eq "first runtime call lists leftovers" "$(rt_log | head -1)" "podman ps -a --filter label=chargehand=1 --format {{.Names}}"
+    assert_eq "first runtime call lists leftovers" "$(rt_log | head -1)" "podman ps -a --filter label=chargehand.role=verify --format {{.Names}}"
     assert_eq "old-runner removed before network create" "$(( ${rm_old:-999} < ${net:-0} ))" "1"
 }
 test_no_socket_or_home_mounted_in_runner() {

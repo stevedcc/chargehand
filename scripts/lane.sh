@@ -17,6 +17,7 @@ LANE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
 . "$LANE_LIB/runtime.sh"
 
 usage() { sed -n '4,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+ROLE_LABEL=chargehand.role=verify   # on every container and network the lane creates; the leftover sweep keys on it
 cant_run() { echo "chargehand-lane: $*" >&2; exit 1; }
 runtime_unavailable() { echo "chargehand-lane: the container runtime is unavailable ($CHARGEHAND_RUNTIME)" >&2; exit 4; }
 
@@ -156,11 +157,12 @@ verify() {
     trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
 
     # 2. Whatever a killed verify left behind. Only the lane uses the runtime on this machine, so
-    # everything labelled chargehand=1 is the lane's.
+    # everything labelled chargehand.role=verify is the lane's. Not chargehand=1: later plans run
+    # implementer and OpenCode containers under the same user, which carry that label too.
     local leftovers c
-    leftovers="$(rt_ls_labelled chargehand=1)" || runtime_unavailable
+    leftovers="$(rt_ls_labelled "$ROLE_LABEL")" || runtime_unavailable
     while IFS= read -r c; do [ -n "$c" ] && rt_rm "$c"; done <<<"$leftovers"
-    leftovers="$(rt_networks_labelled chargehand=1)" || runtime_unavailable
+    leftovers="$(rt_networks_labelled "$ROLE_LABEL")" || runtime_unavailable
     while IFS= read -r c; do [ -n "$c" ] && { rt_network_rm "$c" >/dev/null 2>&1 || true; }; done <<<"$leftovers"
 
     # 3. The commit must already be in the lane's repo (the requester pushes it).
@@ -193,7 +195,7 @@ verify() {
 
     # 5. The run's private network: no outbound access.
     NETWORK="chv-$sha7"
-    rt_network_create "$NETWORK" yes >/dev/null || cant_run "could not create network $NETWORK"
+    rt_network_create "$NETWORK" yes "$ROLE_LABEL" >/dev/null || cant_run "could not create network $NETWORK"
 
     # 6. Services, named after themselves (their host names on the network), then wait for each.
     # Every rt_run closes fd 9: a runtime helper that outlives this process (conmon, a network
@@ -207,7 +209,7 @@ verify() {
         mapfile -t envs < <(env_args "$(lane_project_get "$project" ".services[$i].env" '{}')")
         STARTED+=("$name")
         rt_run "$name" "$image" "$NETWORK" 1 "$(lane_project_get "$project" ".services[$i].memory" 1g)" \
-            "${envs[@]}" -- >/dev/null 9>&- || cant_run "could not start service $name"
+            "${envs[@]}" --label "$ROLE_LABEL" -- >/dev/null 9>&- || cant_run "could not start service $name"
         record_digest "$name" "$image"
         names+=("$name")
         readies+=("$(lane_project_get "$project" ".services[$i].ready" '[]')")
@@ -242,7 +244,7 @@ verify() {
     STARTED+=("$c")
     rt_run "$c" "$runner_image" "$(rt_default_network)" "$cpus" "$memory" \
         --mount "$src:/work:Z" --mount "$recipe:/recipe:ro,Z" --mount "$cache:/cache:z" \
-        --env NUGET_PACKAGES=/cache/nuget --workdir /work "${runas[@]}" -- chargehand-run restore >/dev/null 9>&- \
+        --env NUGET_PACKAGES=/cache/nuget --workdir /work "${runas[@]}" --label "$ROLE_LABEL" -- chargehand-run restore >/dev/null 9>&- \
         || cant_run "could not start $c"
     record_digest runner "$runner_image"
     wait_runner "$c" restore "$(minutes "$timeout_min + $grace_sec / 60")"
@@ -254,7 +256,7 @@ verify() {
     STARTED+=("$c")
     rt_run "$c" "$runner_image" "$NETWORK" "$cpus" "$memory" \
         --mount "$src:/work:Z" --mount "$recipe:/recipe:ro,Z" --mount "$cache:/cache:ro,z" --mount "$out:/out:Z" \
-        "${envs[@]}" --workdir /work "${runas[@]}" -- chargehand-run suites >/dev/null 9>&- \
+        "${envs[@]}" --workdir /work "${runas[@]}" --label "$ROLE_LABEL" -- chargehand-run suites >/dev/null 9>&- \
         || cant_run "could not start $c"
     wait_runner "$c" suites "$(minutes "$timeout_min * (1 + $(grep -c . "$recipe/tests")) + $grace_sec / 60")"
 

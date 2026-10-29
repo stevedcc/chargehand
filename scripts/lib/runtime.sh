@@ -14,14 +14,16 @@ rt_bin() {
 
 rt_network_create() {
     local bin; bin="$(rt_bin)" || return $?
-    local name="$1" internal="$2" flags=()
+    local name="$1" internal="$2" flags=() extra=()
+    shift 2
+    while [ "$#" -gt 0 ]; do extra+=(--label "$1"); shift; done
     case "$internal" in
         yes) [ "$bin" = container ] && die "internal networks are not supported by the container runtime"
              flags=(--internal) ;;
         no) ;;
         *) die "rt_network_create: internal must be yes or no, got \"$internal\"" ;;
     esac
-    "$bin" network create "${flags[@]}" --label chargehand=1 "$name"
+    "$bin" network create "${flags[@]}" --label chargehand=1 "${extra[@]}" "$name"
 }
 
 # rt_default_network: the runtime's built-in network, the one with outbound access. Apple's name is
