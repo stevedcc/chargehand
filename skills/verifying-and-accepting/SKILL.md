@@ -56,6 +56,49 @@ the ref `start-review.sh` printed (also in `review-ref.txt`), `agent/review/<tag
      in the message. Fix that and accept again; do not send the agent a merge round.
 5. `writing-retros`.
 
+## Verifying on a lane
+`verify --lane <name> <ref>` builds and tests the commit in an untrusted runner container on a
+separate machine (a "container verify lane") instead of in the local sandbox. Same exit codes and
+the same rule: only exit 0 allows accept. The run prints the digests of every image it ran on
+(`digests: runner=sha256:... db=sha256:...`); the record says `lane=<name>`.
+
+**What the runner can and cannot do.** It has no credentials and no container-runtime socket. Its
+only host mounts are its own checkout and output folders (plus a per-project package cache). It
+has outbound network only during the restore phase; build and suites run on a private internal
+network with the project's service containers (a database, say). It runs as non-root UID 1000;
+the controller fixes the ownership of its folders (the runner cannot do it for itself). On
+SELinux hosts the controller relabels those bind mounts (`:Z` per run, `:z` for the cache) and
+nothing outside the lane's `work_dir`. The runner image and the service images must be pinned by
+digest; only an image that was **pushed** and has a registry digest counts (a local build has none).
+
+**What the project must provide.**
+- An external database through an environment variable instead of Testcontainers (the runner has
+  no socket to start containers with). For the reference project, `CROFT_TEST_POSTGRES`, set in
+  the lane's `env` for the project and pointing at a `services` entry (see `examples/lane.json`).
+  Until the project supports it, only the build can run on a lane.
+- The E2E additionally needs `start-local.sh --e2e` to take the Postgres host and the mock IdP's
+  URL from the environment. Until that lands, the lane's recipe runs the build and the API and
+  Web suites only.
+- **Trusted-only test categories do not run on a lane.** For the reference project those are
+  `Container` (builds Dockerfiles, needs the runtime) and `ReadyToRun` (long publish). Run them in
+  the local sandbox verify when a change touches what they cover.
+
+**Setup** (once per lane, on the lane machine, as its dedicated user; the owner does the sudo
+parts): the dedicated user with rootless Podman, enough RAM for the runner plus services, the
+runner image built with `images/build.sh`, pushed, and its digest copied into `lane.json`; then
+`bash setup-lane.sh --project <p>` (skill `setting-up-agent-sandbox`, "Container lane") and the
+`lanes.json` entry it prints on the requester, plus an ssh host entry for `<lane-user>@<box>`.
+
+**First comparison** (before anyone relies on a lane; needs the setup above and the project's
+external-database change accepted). On the same SHA:
+```
+bash scripts/agent-sync.sh --project <p> verify --lane <name> <ref>
+bash scripts/agent-sync.sh --project <p> verify <ref>
+```
+Sample the lane box's memory during the first (`podman stats --no-stream` over ssh, every
+minute). Record both summaries, both wall times and the peak memory in the retro. Expected:
+identical pass/fail and suite counts. If they differ, debug that before using the lane.
+
 ## While any brief is running or waiting to be accepted
 **Commit nothing on the target branch**, not even a brief (it goes on `brief/<tag>`, and
 accept brings it along: the agent's branch starts with that commit). Every commit on the target

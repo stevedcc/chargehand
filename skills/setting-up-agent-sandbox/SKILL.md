@@ -48,6 +48,27 @@ owner repo <--fetch-- agent clone   (git fetch with upload-pack only: no hooks, 
 **Re-run step 2 and 4 after any change** (the launcher's verify exit codes, lock and timeout, and `verify_timeout_min` in a project's config, only reach the agent after step 2) to `sandbox.sh`, `implementer/` or a project config:
 agents only see the root-owned installed copies.
 
+## Container lane
+A lane is a machine (or a dedicated user on one) that verifies commits in an untrusted runner
+container, as an alternative to the bubblewrap verify above. The runner has no credentials and no
+runtime socket, runs as non-root UID 1000 (the controller fixes folder ownership), and has
+outbound network only while restoring. Bind mounts are relabelled on SELinux hosts. The runner
+and service images are pinned by digest, and only a pushed digest counts. A project needs an
+external database through an env var instead of Testcontainers, and its trusted-only test
+categories (`Container`, `ReadyToRun` for the reference project) do not run on a lane. Details:
+skill `verifying-and-accepting`, "Verifying on a lane".
+
+Owner steps (sudo, on the lane machine): the dedicated user with rootless Podman (lingering, so
+its socket is up without a login), the RAM, a registry login to push the runner image. Then:
+1. Build and push the runner image: `images/build.sh`; put its digest and the services' digests in
+   `~/.config/chargehand/lane.json` (shape: `examples/lane.json`, whose all-zero digests are
+   placeholders that pass `lane_check` and run nothing).
+2. As the lane user, no sudo: `bash <plugin>/skills/setting-up-agent-sandbox/scripts/setup-lane.sh --project <name>`.
+   It checks `lane.json` and the runtime, installs `~/.local/bin/chargehand-lane`, creates the
+   bare repo and work folder, and prints the `lanes.json` entry. Exit 2 is a config problem
+   (read its message), 4 the runtime does not answer. Re-run after updating Chargehand.
+3. On the requester: add that entry to `lanes.json` and `<lane-user>@<box>` to `~/.ssh/config`.
+
 ## Red flags
 | Thought | Reality |
 |---|---|
