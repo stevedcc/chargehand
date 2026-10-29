@@ -1,0 +1,2 @@
+The demo project the real-runtime lane tests (tests/test_lane_real.sh) verify: each "suite" is a
+shell script under tests/ that prints one summary line, "Passed!" or "Failed!".

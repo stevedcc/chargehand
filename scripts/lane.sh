@@ -223,11 +223,15 @@ verify() {
         done
     done
 
+    # Mount labels (ruling R8): on an SELinux host a container reads a bind mount only once it is
+    # relabelled; elsewhere z/Z do nothing. The per-run directories get the private label (Z), the
+    # cache, shared by both runners, the shared one (z). Everything relabelled is under work_dir.
+
     # 7. Restore: the only phase with outbound network.
     c="chv-$sha7-restore"
     STARTED+=("$c")
     rt_run "$c" "$runner_image" "$(rt_default_network)" "$cpus" "$memory" \
-        --mount "$src:/work" --mount "$recipe:/recipe:ro" --mount "$cache:/cache" \
+        --mount "$src:/work:Z" --mount "$recipe:/recipe:ro,Z" --mount "$cache:/cache:z" \
         --env NUGET_PACKAGES=/cache/nuget --workdir /work -- chargehand-run restore >/dev/null 9>&- \
         || cant_run "could not start $c"
     record_digest runner "$runner_image"
@@ -239,7 +243,7 @@ verify() {
     mapfile -t envs < <(env_args "$(lane_project_get "$project" .env '{}')")
     STARTED+=("$c")
     rt_run "$c" "$runner_image" "$NETWORK" "$cpus" "$memory" \
-        --mount "$src:/work" --mount "$recipe:/recipe:ro" --mount "$cache:/cache:ro" --mount "$out:/out" \
+        --mount "$src:/work:Z" --mount "$recipe:/recipe:ro,Z" --mount "$cache:/cache:ro,z" --mount "$out:/out:Z" \
         "${envs[@]}" --workdir /work -- chargehand-run suites >/dev/null 9>&- \
         || cant_run "could not start $c"
     wait_runner "$c" suites "$(minutes "$timeout_min * (1 + $(grep -c . "$recipe/tests")) + $grace_sec / 60")"

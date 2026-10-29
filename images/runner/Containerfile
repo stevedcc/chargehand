@@ -1,0 +1,43 @@
+# The verify lane's runner image: the .NET SDK, Node with the Playwright CLI and its browsers, git
+# and the entry point chargehand-run, run as the non-root user runner (UID 1000). Built for
+# linux/amd64 and linux/arm64 by images/build.sh, which passes the versions; a lane runs it by digest.
+# Debian 13: its Node (20) is new enough for Playwright (>= 20), and it is a platform both Playwright
+# and .NET support on both architectures.
+FROM docker.io/library/debian:trixie-slim
+
+ARG DOTNET_SDK_VERSION
+ARG PLAYWRIGHT_VERSION
+ARG PLAYWRIGHT_BROWSERS=chromium
+
+ENV DOTNET_ROOT=/usr/share/dotnet \
+    PATH=/usr/share/dotnet:$PATH \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+# git, Node and npm, and what the .NET SDK needs at run time (ICU, OpenSSL, time zones).
+RUN test -n "$DOTNET_SDK_VERSION" && test -n "$PLAYWRIGHT_VERSION" \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl git libicu76 libssl3t64 tzdata nodejs npm \
+ && rm -rf /var/lib/apt/lists/*
+
+# The .NET SDK at exactly that version, by the official install script. Nothing runs dotnet here:
+# under emulation the other architecture's runtime is unreliable, so the check reads the SDK folder.
+RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
+ && bash /tmp/dotnet-install.sh --version "$DOTNET_SDK_VERSION" --install-dir /usr/share/dotnet \
+ && rm /tmp/dotnet-install.sh \
+ && test -d "/usr/share/dotnet/sdk/$DOTNET_SDK_VERSION"
+
+# The Playwright CLI at that version and its browsers with their system packages. The .NET
+# Playwright package of the same version finds them through PLAYWRIGHT_BROWSERS_PATH.
+RUN npm install -g "playwright@$PLAYWRIGHT_VERSION" \
+ && playwright install --with-deps $PLAYWRIGHT_BROWSERS \
+ && chmod -R a+rX /ms-playwright \
+ && rm -rf /var/lib/apt/lists/* /root/.npm /root/.cache
+
+COPY chargehand-run /usr/local/bin/chargehand-run
+RUN chmod 755 /usr/local/bin/chargehand-run \
+ && useradd --create-home --uid 1000 --user-group --shell /bin/bash runner
+
+USER runner
+WORKDIR /work

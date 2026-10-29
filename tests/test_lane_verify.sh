@@ -35,8 +35,8 @@ lane_setup() {
 #!/usr/bin/env bash
 if [ "$1" = run ] && [[ " $* " == *" --name chv-"*"-suites "* ]]; then
     prev=; for a in "$@"; do
-        if [ "$prev" = -v ] && [[ "$a" == *:/recipe:ro ]]; then cp -r "${a%%:*}" "$TEST_TMP/recipe-copy"; fi
-        if [ "$prev" = -v ] && [[ "$a" == *:/out ]]; then printf '%s\n' "${SUITES_TXT-$(printf '1 0 1\n2 0 1')}" > "${a%%:*}/suites.txt"; fi
+        if [ "$prev" = -v ] && [[ "$a" == *:/recipe:ro* ]]; then cp -r "${a%%:*}" "$TEST_TMP/recipe-copy"; fi
+        if [ "$prev" = -v ] && [[ "$a" == *:/out || "$a" == *:/out:* ]]; then printf '%s\n' "${SUITES_TXT-$(printf '1 0 1\n2 0 1')}" > "${a%%:*}/suites.txt"; fi
         prev="$a"
     done
 fi
@@ -105,13 +105,13 @@ test_runner_phases_use_the_right_networks() {
     assert_contains "restore ran" "$restore" "registry.example/runner@sha256:$D0 chargehand-run restore"
     assert_not_contains "restore not on the run network" "$restore" "--network chv-"
     assert_contains "restore on the default network" "$restore" "--network podman "
-    assert_contains "restore cache read-write" "$restore" "-v $HOME/lane/work/cache/demo:/cache "
+    assert_contains "restore cache read-write" "$restore" "-v $HOME/lane/work/cache/demo:/cache:z "
     assert_contains "restore NuGet cache" "$restore" "-e NUGET_PACKAGES=/cache/nuget"
     assert_contains "suites ran" "$suites" "registry.example/runner@sha256:$D0 chargehand-run suites"
     assert_contains "suites on the run network" "$suites" "--network chv-$SHA7 "
-    assert_contains "suites cache read-only" "$suites" "-v $HOME/lane/work/cache/demo:/cache:ro "
-    assert_eq "no read-write cache mount" "$(grep -c -- '-v [^ ]*:/cache ' <<<"$suites")" "0"
-    assert_contains "suites out mount" "$suites" "-v $HOME/lane/work/run-$SHA7/out:/out "
+    assert_contains "suites cache read-only" "$suites" "-v $HOME/lane/work/cache/demo:/cache:ro,z "
+    assert_eq "no read-write cache mount" "$(grep -c -- '-v [^ ]*:/cache:z ' <<<"$suites")" "0"
+    assert_contains "suites out mount" "$suites" "-v $HOME/lane/work/run-$SHA7/out:/out:Z "
     assert_contains "suites project env" "$suites" "-e DEMO_DB=Host=db"
     assert_contains "runner limits" "$suites" "--cpus 3 --memory 6g"
     assert_contains "network is internal" "$(rt_log)" "podman network create --internal --label chargehand=1 chv-$SHA7"
@@ -155,6 +155,20 @@ test_no_socket_or_home_mounted_in_runner() {
         case "$host" in "$HOME/lane/work/"*) ;; "$HOME"*) bad+=" $m" ;; esac
     done <<<"$mounts"
     assert_eq "no socket, /etc or home outside work_dir" "$bad" ""
+}
+# Ruling R8: on SELinux hosts a container can read a bind mount only once it is relabelled. The
+# per-run directories get the private label (Z), the per-project cache, shared by both runners, the
+# shared one (z). Every relabelled path is under work_dir.
+test_bind_mounts_are_relabelled_for_selinux() {
+    lane_setup; verify
+    local w="$HOME/lane/work" r="$HOME/lane/work/run-$SHA7"
+    assert_eq "runner mounts" "$(runner_mounts)" "$r/src:/work:Z
+$r/recipe:/recipe:ro,Z
+$w/cache/demo:/cache:z
+$r/src:/work:Z
+$r/recipe:/recipe:ro,Z
+$w/cache/demo:/cache:ro,z
+$r/out:/out:Z"
 }
 test_recipe_reaches_runner_as_files() {
     lane_setup; verify

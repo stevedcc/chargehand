@@ -40,14 +40,26 @@ rt_network_rm() {
     if [ "$bin" = container ]; then "$bin" network delete "$1"; else "$bin" network rm "$1"; fi
 }
 
-# rt_run NAME IMAGE NETWORK CPUS MEMORY [--mount h:c[:ro]]... [--env K=V]... [--workdir D] [--label k=v]... -- CMD...
+# rt_mount_spec BIN HOST:CONTAINER[:OPTS]: the -v value for BIN. Docker and Podman take OPTS as they
+# are, z/Z (SELinux relabel, ruling R8) included; Apple's CLI has no SELinux, so z and Z are dropped.
+rt_mount_spec() {
+    [ "$1" = container ] || { printf '%s\n' "$2"; return; }
+    local host="${2%%:*}" rest="${2#*:}" target opts kept="" o
+    target="${rest%%:*}"
+    [ "$target" != "$rest" ] || { printf '%s\n' "$2"; return; }
+    IFS=, read -ra opts <<<"${rest#*:}"
+    for o in "${opts[@]}"; do case "$o" in z|Z|'') ;; *) kept+="${kept:+,}$o" ;; esac; done
+    printf '%s\n' "$host:$target${kept:+:$kept}"
+}
+
+# rt_run NAME IMAGE NETWORK CPUS MEMORY [--mount h:c[:opts]]... [--env K=V]... [--workdir D] [--label k=v]... -- CMD...
 rt_run() {
     local bin; bin="$(rt_bin)" || return $?
     local name="$1" image="$2" network="$3" cpus="$4" memory="$5"; shift 5
     local mounts=() envs=() workdir=() labels=(--label chargehand=1)
     while [ "$#" -gt 0 ]; do
         case "$1" in
-            --mount) mounts+=(-v "$2"); shift 2 ;;
+            --mount) mounts+=(-v "$(rt_mount_spec "$bin" "$2")"); shift 2 ;;
             --env) envs+=(-e "$2"); shift 2 ;;
             --workdir) workdir=(--workdir "$2"); shift 2 ;;
             --label) labels+=(--label "$2"); shift 2 ;;
@@ -130,4 +142,51 @@ rt_networks_labelled() {
     else
         "$bin" network ls --filter "label=$1" --format '{{.Name}}'
     fi
+}
+
+# rt_build_multiarch TAG CONTAINERFILE CONTEXT PLATFORMS PUSH [--build-arg K=V]...: builds PLATFORMS
+# (comma-separated) into one manifest list TAG; PUSH=yes also pushes it to TAG's registry. The build
+# output goes to stderr, the digest to stdout: the pushed one with PUSH=yes, else the local list's (a
+# registry may store the list under another digest, so a lane pins what a push prints). Podman: build
+# --manifest, a stale list of the same name removed first (a build adds to it). Docker: buildx; its
+# local multi-architecture --load needs the containerd image store. UNVERIFIED (no Docker lane yet).
+# Apple's container is refused.
+rt_build_multiarch() {
+    local bin; bin="$(rt_bin)" || return $?
+    local tag="$1" file="$2" context="$3" platforms="$4" push="$5"; shift 5
+    local args=() tmp rc=0 digest="" out
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --build-arg) args+=(--build-arg "$2"); shift 2 ;;
+            *) die "rt_build_multiarch: unexpected argument \"$1\"" ;;
+        esac
+    done
+    case "$push" in yes|no) ;; *) die "rt_build_multiarch: push must be yes or no, got \"$push\"" ;; esac
+    [ "$bin" != container ] || die "multi-architecture builds need docker or podman, not the container runtime"
+    tmp="$(mktemp)" || return 1
+    if [ "$bin" = docker ]; then
+        out=--load; [ "$push" = yes ] && out=--push
+        "$bin" buildx build --platform "$platforms" -f "$file" -t "$tag" "${args[@]}" --metadata-file "$tmp" \
+            "$out" "$context" >&2 || rc=$?
+        [ "$rc" -eq 0 ] && digest="$(jq -r '."containerimage.digest" // empty' "$tmp" 2>/dev/null)"
+    else
+        if "$bin" manifest exists "$tag"; then "$bin" manifest rm "$tag" >/dev/null || rc=$?; fi
+        if [ "$rc" -eq 0 ]; then
+            "$bin" build --platform "$platforms" --manifest "$tag" -f "$file" "${args[@]}" "$context" >&2 || rc=$?
+        fi
+        if [ "$rc" -eq 0 ] && [ "$push" = yes ]; then
+            "$bin" manifest push --all --digestfile "$tmp" "$tag" "docker://$tag" >&2 || rc=$?
+            [ "$rc" -eq 0 ] && digest="$(cat "$tmp")"
+        elif [ "$rc" -eq 0 ]; then
+            # The tagged entry is the list (its per-architecture images carry no name). Its Digest
+            # field is the empty list `build --manifest` starts from; the list as built is its last
+            # repo digest (Podman 5.8: equal to the sha256 of `skopeo inspect --raw`).
+            digest="$("$bin" images --format json "$tag" \
+                | jq -r '[.[] | select((.Names // []) | length > 0) | .RepoDigests // [] | last][0] // empty | sub("^.*@"; "")' 2>/dev/null)"
+        fi
+    fi
+    rm -f "$tmp"
+    [ "$rc" -eq 0 ] || return "$rc"
+    [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "chargehand: could not read the digest of $tag" >&2; return 1; }
+    printf '%s\n' "$digest"
 }

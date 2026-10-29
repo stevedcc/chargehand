@@ -32,6 +32,16 @@ container network create --label chargehand=1 v1"
     assert_contains "internal message" "$err" "internal networks are not supported by the container runtime"
     assert_eq "nothing created" "$(rt_log | grep -c 'network create')" "1"
 }
+# Ruling R8: z/Z (SELinux relabel) pass through to docker and podman; Apple's CLI has no SELinux.
+test_podman_mount_options_pass_through() {
+    fake_rt; CHARGEHAND_RUNTIME=podman rt_run r1 img net1 1 1g --mount /a:/w:Z --mount /b:/o:ro,z -- true
+    assert_contains "relabel options kept" "$(rt_log)" "-v /a:/w:Z -v /b:/o:ro,z "
+}
+test_apple_drops_relabel_options() {
+    fake_rt; CHARGEHAND_RUNTIME=container rt_run r1 img net1 1 1g --mount /a:/w:Z --mount /b:/o:ro,z \
+        --mount /c:/c:z,ro --mount /d:/d -- true
+    assert_contains "relabel options dropped" "$(rt_log)" "-v /a:/w -v /b:/o:ro -v /c:/c:ro -v /d:/d "
+}
 test_unknown_runtime_dies() {
     local err; err="$( (CHARGEHAND_RUNTIME=lxc rt_bin) 2>&1)"; local rc=$?
     assert_eq "non-zero" "$((rc != 0))" "1"
