@@ -47,6 +47,8 @@ if [ "$1" = logs ] && [ -n "${FAKE_LOGS_BLOCK:-}" ]; then
     echo "podman $*" >> "$TEST_TMP/rt.log"; echo "${FAKE_RT_OUT_logs:-}"; exec sleep 60   # a stream that never ends
 fi
 if [ "$1" = wait ] && [[ "$2" == chv-*-suites ]]; then export FAKE_RT_OUT_wait="${SUITES_RC:-0}"; fi
+# Ruling R9: `podman unshare rm` really removes (as the lane user here); `unshare chown` is only logged.
+if [ "$1" = unshare ] && [ "$2" = rm ]; then "${@:2}"; fi
 exec "$TEST_TMP/real/podman" "$@"
 EOF
     chmod +x "$TEST_TMP/bin/podman"
@@ -130,10 +132,46 @@ test_service_never_ready_fails_and_cleans_up() {
     FAKE_RT_RC_exec=1 verify
     assert_eq "exit" "$RC" "10"
     assert_contains "message" "$OUT" "service db not ready after 2 s"
-    assert_eq "rm db second to last" "$(rt_log | tail -2 | head -1)" "podman rm -f db"
-    assert_eq "network rm last" "$(rt_log | tail -1)" "podman network rm chv-$SHA7"
+    assert_eq "rm db third to last" "$(rt_log | tail -3 | head -1)" "podman rm -f db"
+    assert_eq "network rm second to last" "$(rt_log | tail -2 | head -1)" "podman network rm chv-$SHA7"
+    assert_eq "run dir removed last, in the user namespace" "$(rt_log | tail -1)" "podman unshare rm -rf $HOME/lane/work/run-$SHA7"
     assert_not_contains "no runner started" "$(rt_log)" "--name chv-$SHA7-restore"
     assert_eq "run dir removed" "$([ -e "$HOME/lane/work/run-$SHA7" ] && echo there || echo gone)" "gone"
+}
+# Ruling R9: the runner is UID 1000, not the lane user. Before the runner phases the controller gives
+# it src, out and the project cache (the recipe stays the lane's), and it removes run directories only
+# through the runtime, which can delete what the runner wrote.
+test_runner_dirs_are_owned_before_the_runner_phases() {
+    lane_setup; verify
+    assert_eq "exit" "$RC" "0"
+    local w="$HOME/lane/work" r="$HOME/lane/work/run-$SHA7" restore
+    assert_eq "chowns" "$(grep '^podman unshare chown' "$TEST_TMP/rt.log")" "podman unshare chown -R 1000:1000 $r/src
+podman unshare chown -R 1000:1000 $r/out
+podman unshare chown -R 1000:1000 $w/cache/demo"
+    restore="$(grep -n "^podman run .* --name chv-$SHA7-restore " "$TEST_TMP/rt.log" | cut -d: -f1)"
+    assert_eq "last chown before the restore runner" "$(( $(grep -n '^podman unshare chown' "$TEST_TMP/rt.log" | tail -1 | cut -d: -f1) < ${restore:-0} ))" "1"
+    assert_not_contains "podman runner keeps the image user" "$(grep -- '--name chv-' "$TEST_TMP/rt.log")" "--user"
+}
+test_run_dir_is_removed_through_the_runtime() {
+    lane_setup
+    mkdir -p "$HOME/lane/work/run-$SHA7/src/stale"
+    verify
+    local r="$HOME/lane/work/run-$SHA7" first net
+    first="$(grep -n "^podman unshare rm -rf $r$" "$TEST_TMP/rt.log" | head -1 | cut -d: -f1)"
+    net="$(grep -n '^podman network create ' "$TEST_TMP/rt.log" | cut -d: -f1)"
+    assert_eq "stale run dir removed before the run" "$(( ${first:-999} < ${net:-0} ))" "1"
+    assert_eq "removed again on exit" "$(rt_log | tail -1)" "podman unshare rm -rf $r"
+    assert_eq "run dir gone" "$([ -e "$r" ] && echo there || echo gone)" "gone"
+}
+test_docker_runner_runs_as_the_host_user() {
+    lane_setup '.runtime = "docker"'
+    cp "$HARNESS_ROOT/tests/fake_runtime.sh" "$TEST_TMP/bin/docker"
+    verify
+    local runners
+    runners="$(grep -- '^docker run .*--name chv-' "$TEST_TMP/rt.log")"
+    assert_eq "both runners as the host user" "$(grep -c -- "--user $(id -u):$(id -g) " <<<"$runners")" "2"
+    assert_not_contains "service keeps its image user" "$(grep -- '^docker run .*--name db ' "$TEST_TMP/rt.log")" "--user"
+    assert_not_contains "no user namespace calls" "$(rt_log)" "unshare"
 }
 test_leftovers_are_removed_first() {
     lane_setup
@@ -266,7 +304,8 @@ test_restore_that_never_ends_times_out() {
     assert_eq "exit" "$RC" "10"
     assert_contains "message" "$OUT" "TIMED OUT (controller) after 0.02 min: restore"
     assert_contains "runner removed" "$(rt_log)" "podman rm -f chv-$SHA7-restore"
-    assert_eq "network removed last" "$(rt_log | tail -1)" "podman network rm chv-$SHA7"
+    assert_eq "network removed second to last" "$(rt_log | tail -2 | head -1)" "podman network rm chv-$SHA7"
+    assert_eq "run dir removed last" "$(rt_log | tail -1)" "podman unshare rm -rf $HOME/lane/work/run-$SHA7"
     assert_eq "run dir removed" "$([ -e "$HOME/lane/work/run-$SHA7" ] && echo there || echo gone)" "gone"
 }
 test_suites_deadline_counts_every_test() {

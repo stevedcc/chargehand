@@ -41,7 +41,7 @@ cleanup() {
         rt_network_rm "$NETWORK" >/dev/null 2>&1 || echo "chargehand-lane: could not remove network $NETWORK (the next verify retries)" >&2
     fi
     if [ -n "$RUN_DIR" ]; then
-        rm -rf "$RUN_DIR" || echo "chargehand-lane: could not remove $RUN_DIR" >&2
+        rt_remove_dir "$RUN_DIR" || echo "chargehand-lane: could not remove $RUN_DIR" >&2
     fi
     if [ "${#STARTED[@]}" -gt 0 ]; then
         line="digests:"
@@ -175,7 +175,7 @@ verify() {
     # so a commit that sits only under refs/verify/ is there too.
     RUN_DIR="$work_dir/run-$sha7"
     local src="$RUN_DIR/src" out="$RUN_DIR/out" recipe="$RUN_DIR/recipe" cache="$work_dir/cache/$project" msg
-    rm -rf "$RUN_DIR" || cant_run "cannot remove the old $RUN_DIR"
+    rt_remove_dir "$RUN_DIR" || cant_run "cannot remove the old $RUN_DIR"
     mkdir -p "$out" "$recipe" "$cache" || cant_run "cannot create $RUN_DIR"
     msg="$(git -c core.hooksPath=/dev/null clone -q --no-checkout --no-hardlinks "$repo" "$src" 2>&1)" \
         || cant_run "clone of $repo failed: $msg"
@@ -226,13 +226,22 @@ verify() {
     # Mount labels (ruling R8): on an SELinux host a container reads a bind mount only once it is
     # relabelled; elsewhere z/Z do nothing. The per-run directories get the private label (Z), the
     # cache, shared by both runners, the shared one (z). Everything relabelled is under work_dir.
+    # Ownership (ruling R9): the runner is UID 1000, not the lane user, so it gets what it writes:
+    # the checkout, out and the cache. The recipe stays the lane's (read-only to the runner). Run
+    # directories are removed only through rt_remove_dir, which can delete what the runner wrote.
+    local d runas=() runner_user
+    for d in "$src" "$out" "$cache"; do
+        rt_own_dir "$d" 1000 1000 || cant_run "could not give $d to the runner (UID 1000)"
+    done
+    runner_user="$(rt_runner_user)" || exit 2
+    [ -z "$runner_user" ] || runas=(--user "$runner_user")
 
     # 7. Restore: the only phase with outbound network.
     c="chv-$sha7-restore"
     STARTED+=("$c")
     rt_run "$c" "$runner_image" "$(rt_default_network)" "$cpus" "$memory" \
         --mount "$src:/work:Z" --mount "$recipe:/recipe:ro,Z" --mount "$cache:/cache:z" \
-        --env NUGET_PACKAGES=/cache/nuget --workdir /work -- chargehand-run restore >/dev/null 9>&- \
+        --env NUGET_PACKAGES=/cache/nuget --workdir /work "${runas[@]}" -- chargehand-run restore >/dev/null 9>&- \
         || cant_run "could not start $c"
     record_digest runner "$runner_image"
     wait_runner "$c" restore "$(minutes "$timeout_min + $grace_sec / 60")"
@@ -244,7 +253,7 @@ verify() {
     STARTED+=("$c")
     rt_run "$c" "$runner_image" "$NETWORK" "$cpus" "$memory" \
         --mount "$src:/work:Z" --mount "$recipe:/recipe:ro,Z" --mount "$cache:/cache:ro,z" --mount "$out:/out:Z" \
-        "${envs[@]}" --workdir /work -- chargehand-run suites >/dev/null 9>&- \
+        "${envs[@]}" --workdir /work "${runas[@]}" -- chargehand-run suites >/dev/null 9>&- \
         || cant_run "could not start $c"
     wait_runner "$c" suites "$(minutes "$timeout_min * (1 + $(grep -c . "$recipe/tests")) + $grace_sec / 60")"
 

@@ -52,23 +52,48 @@ rt_mount_spec() {
     printf '%s\n' "$host:$target${kept:+:$kept}"
 }
 
-# rt_run NAME IMAGE NETWORK CPUS MEMORY [--mount h:c[:opts]]... [--env K=V]... [--workdir D] [--label k=v]... -- CMD...
+# rt_run NAME IMAGE NETWORK CPUS MEMORY [--mount h:c[:opts]]... [--env K=V]... [--workdir D] [--user U:G] [--label k=v]... -- CMD...
 rt_run() {
     local bin; bin="$(rt_bin)" || return $?
     local name="$1" image="$2" network="$3" cpus="$4" memory="$5"; shift 5
-    local mounts=() envs=() workdir=() labels=(--label chargehand=1)
+    local mounts=() envs=() workdir=() user=() labels=(--label chargehand=1)
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --mount) mounts+=(-v "$(rt_mount_spec "$bin" "$2")"); shift 2 ;;
             --env) envs+=(-e "$2"); shift 2 ;;
             --workdir) workdir=(--workdir "$2"); shift 2 ;;
+            --user) user=(--user "$2"); shift 2 ;;
             --label) labels+=(--label "$2"); shift 2 ;;
             --) shift; break ;;
             *) die "rt_run: unexpected argument \"$1\"" ;;
         esac
     done
     "$bin" run -d --name "$name" --network "$network" --cpus "$cpus" --memory "$memory" \
-        "${mounts[@]}" "${envs[@]}" "${workdir[@]}" "${labels[@]}" "$image" "$@"
+        "${mounts[@]}" "${envs[@]}" "${workdir[@]}" "${user[@]}" "${labels[@]}" "$image" "$@"
+}
+
+# The runner image runs as runner (UID 1000), not as the lane user who owns the bind-mounted
+# directories (ruling R9; no user-namespace run flags).
+# rt_own_dir DIR UID GID: gives DIR, recursively, to UID:GID as containers see them. Rootless Podman:
+# chown inside its user namespace. Docker: nothing; the runner runs as the host user instead
+# (rt_runner_user). Apple: nothing, UNVERIFIED.
+rt_own_dir() {
+    local bin; bin="$(rt_bin)" || return $?
+    [ "$bin" = podman ] || return 0
+    "$bin" unshare chown -R "$2:$3" "$1"
+}
+
+# rt_remove_dir DIR: removes DIR, also what a container wrote there (Podman: inside its user namespace).
+rt_remove_dir() {
+    local bin; bin="$(rt_bin)" || return $?
+    if [ "$bin" = podman ]; then "$bin" unshare rm -rf "$1"; else rm -rf "$1"; fi
+}
+
+# rt_runner_user: the --user value for a runner, empty for the image's own user. Docker: the host
+# user, who owns the mounts (rt_own_dir does nothing there).
+rt_runner_user() {
+    local bin; bin="$(rt_bin)" || return $?
+    [ "$bin" != docker ] || printf '%s:%s\n' "$(id -u)" "$(id -g)"
 }
 
 # rt_exec NAME -- CMD...

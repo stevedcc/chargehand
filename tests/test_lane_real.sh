@@ -27,7 +27,11 @@ labelled() {
 REAL_TMP="$(mktemp -d)" REAL_HOME="$HOME"
 DEMO_TAG="localhost/chargehand-lane-demo:test-$$"
 # Podman refuses to run once HOME is gone (the last test's is removed), hence the real HOME here.
+# The runner owns its directories through Podman's user namespace (ruling R9), so a test's own
+# throwaway HOME may hold files only that namespace can remove: every test HOME is removed in it too.
+TEST_DIRS=()
 trap 'HOME="$REAL_HOME" podman rmi "$DEMO_TAG" >/dev/null || echo "  could not remove the test image $DEMO_TAG" >&2
+      for d in "${TEST_DIRS[@]}"; do HOME="$REAL_HOME" podman unshare rm -rf "$d"; done
       rm -rf "$REAL_TMP"' EXIT
 printf '[storage]\ndriver = "%s"\ngraphroot = "%s"\nrunroot = "%s"\n' \
     "$(podman info --format '{{.Store.GraphDriverName}}')" "$(podman info --format '{{.Store.GraphRoot}}')" \
@@ -43,6 +47,7 @@ DEMO_IMAGE="localhost/chargehand-lane-demo@$DEMO_DIGEST"
 # real_setup [jq-filter]: lane.json (Podman, project "demo": restore and build do nothing, one suite
 # that passes), and a bare repo holding the demo project under refs/verify/ (as the requester pushes).
 real_setup() {
+    TEST_DIRS+=("$TEST_TMP")
     jq -n --arg img "$DEMO_IMAGE" '{
         runtime: "podman", cpus: 1, memory: "512m",
         repos_dir: "~/lane/repos", work_dir: "~/lane/work", verify_timeout_min: 2,
@@ -65,11 +70,13 @@ verify() { OUT="$(bash "$HARNESS_ROOT/scripts/lane.sh" verify --project demo "$S
 # assert_clean: no container or network of the run remains, nor its run directory.
 assert_clean() {
     assert_eq "no labelled container or network left" "$(labelled)" ""
+    assert_not_contains "run dir removal did not fail" "$OUT" "could not remove"
     assert_eq "run dir removed" "$([ -e "$HOME/lane/work/run-$SHA7" ] && echo there || echo gone)" "gone"
 }
 
 test_real_pass() {
-    real_setup; verify
+    # The restore writes the cache and the checkout as the runner (UID 1000, ruling R9).
+    real_setup '.projects.demo.restore = "mkdir -p /cache/nuget && touch /cache/nuget/restored /work/restored"'; verify
     assert_eq "exit" "$RC" "0"
     assert_contains "start line" "$OUT" "Verifying $SHA7 lane demo"
     assert_contains "suite output" "$OUT" "Passed!  - Failed: 0, Passed: 1"

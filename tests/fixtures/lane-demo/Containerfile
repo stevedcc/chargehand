@@ -1,5 +1,6 @@
 # The throwaway image of the real-runtime lane tests (tests/test_lane_real.sh), not the runner image
-# (images/runner/Containerfile): alpine plus bash and git (ruling R3) and chargehand-run. The same
+# (images/runner/Containerfile): alpine plus bash and git (ruling R3) and chargehand-run, run as
+# the user runner (UID 1000) like the runner image (ruling R9). The same
 # image is the demo's "db" service: its default command listens on TCP 5432 (BusyBox nc keeps
 # listening after a connection only with -e); as the runner, the controller runs
 # `chargehand-run <phase>` instead. Build context: a directory holding this file
@@ -7,5 +8,8 @@
 FROM docker.io/library/alpine:3.22
 RUN apk add --no-cache bash git
 COPY chargehand-run /usr/local/bin/chargehand-run
-RUN chmod 755 /usr/local/bin/chargehand-run
+RUN chmod 755 /usr/local/bin/chargehand-run \
+ && adduser -D -u 1000 runner
+# The runner contract (images/runner/Containerfile): a non-root user runner, UID 1000.
+USER runner
 CMD ["nc", "-lk", "-p", "5432", "-e", "true"]

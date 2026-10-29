@@ -42,6 +42,33 @@ test_apple_drops_relabel_options() {
         --mount /c:/c:z,ro --mount /d:/d -- true
     assert_contains "relabel options dropped" "$(rt_log)" "-v /a:/w -v /b:/o:ro -v /c:/c:ro -v /d:/d "
 }
+# Ruling R9: the runner (UID 1000) gets its directories through the runtime, no user-namespace flags.
+test_own_dir() {
+    fake_rt
+    CHARGEHAND_RUNTIME=podman rt_own_dir /d 1000 1000; assert_eq "podman rc" "$?" "0"
+    CHARGEHAND_RUNTIME=docker rt_own_dir /d 1000 1000; assert_eq "docker rc" "$?" "0"
+    CHARGEHAND_RUNTIME=container rt_own_dir /d 1000 1000; assert_eq "container rc" "$?" "0"
+    assert_eq "only podman chowns, in its user namespace" "$(rt_log)" "podman unshare chown -R 1000:1000 /d"
+    FAKE_RT_RC_unshare=125 CHARGEHAND_RUNTIME=podman rt_own_dir /d 1000 1000; assert_eq "podman failure" "$?" "125"
+}
+test_remove_dir() {
+    fake_rt
+    CHARGEHAND_RUNTIME=podman rt_remove_dir /d
+    assert_eq "podman removes in its user namespace" "$(rt_log)" "podman unshare rm -rf /d"
+    mkdir -p "$TEST_TMP/x/y" "$TEST_TMP/z"
+    CHARGEHAND_RUNTIME=docker rt_remove_dir "$TEST_TMP/x"; CHARGEHAND_RUNTIME=container rt_remove_dir "$TEST_TMP/z"
+    assert_eq "docker and container: plain rm" "$(ls -d "$TEST_TMP/x" "$TEST_TMP/z" 2>/dev/null)" ""
+    assert_eq "no runtime call" "$(rt_log | wc -l)" "1"
+}
+test_runner_user() {
+    assert_eq "docker: host user" "$(CHARGEHAND_RUNTIME=docker rt_runner_user)" "$(id -u):$(id -g)"
+    assert_eq "podman: image user" "$(CHARGEHAND_RUNTIME=podman rt_runner_user)" ""
+    assert_eq "container: image user" "$(CHARGEHAND_RUNTIME=container rt_runner_user)" ""
+}
+test_run_user_flag() {
+    fake_rt; CHARGEHAND_RUNTIME=docker rt_run r1 img net1 1 1g --user 5:6 -- true
+    assert_contains "user flag" "$(rt_log)" "--user 5:6 "
+}
 test_unknown_runtime_dies() {
     local err; err="$( (CHARGEHAND_RUNTIME=lxc rt_bin) 2>&1)"; local rc=$?
     assert_eq "non-zero" "$((rc != 0))" "1"
