@@ -165,6 +165,8 @@ external database via an environment variable instead of Testcontainers, and tes
 that need the runtime itself do not run on a lane. See the `setting-up-agent-sandbox` and
 `verifying-and-accepting` skills.
 
+The Docker path is fake-tested only (no real Docker run yet); on Docker the runner's HOME is unwritable when the host UID is not 1000, because the runner runs as the host user there.
+
 ## Models and cost
 
 `models.json` names your subscriptions and assigns models to four roles: implementer, task

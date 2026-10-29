@@ -57,6 +57,7 @@ and service images are pinned by digest, and only a pushed digest counts. A proj
 external database through an env var instead of Testcontainers, and its trusted-only test
 categories (`Container`, `ReadyToRun` for the reference project) do not run on a lane. Details:
 skill `verifying-and-accepting`, "Verifying on a lane".
+The Docker path is fake-tested only (no real Docker run yet); on Docker the runner's HOME is unwritable when the host UID is not 1000, because the runner runs as the host user there.
 
 Owner steps (sudo, on the lane machine): the dedicated user with rootless Podman (lingering, so
 its socket is up without a login), the RAM, a registry login to push the runner image. Then:

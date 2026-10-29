@@ -71,6 +71,8 @@ SELinux hosts the controller relabels those bind mounts (`:Z` per run, `:z` for 
 nothing outside the lane's `work_dir`. The runner image and the service images must be pinned by
 digest; only an image that was **pushed** and has a registry digest counts (a local build has none).
 
+The Docker path is fake-tested only (no real Docker run yet); on Docker the runner's HOME is unwritable when the host UID is not 1000, because the runner runs as the host user there.
+
 **What the project must provide.**
 - An external database through an environment variable instead of Testcontainers (the runner has
   no socket to start containers with). For the reference project, `CROFT_TEST_POSTGRES`, set in
