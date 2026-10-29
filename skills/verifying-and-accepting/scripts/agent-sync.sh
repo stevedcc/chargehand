@@ -77,10 +77,12 @@ verify)
     poll="${CHARGEHAND_VERIFY_POLL_SEC:-30}"; deadline=$(( $(date +%s) + ${CHARGEHAND_VERIFY_WAIT_MAX_SEC:-7200} )); told=0
     if [ -n "$lane" ]; then
         valid_name "$project" || die "bad project name \"$project\""
-        # BatchMode: an unattended push must fail, not wait on a host-key or password prompt. The push's
+        # BatchMode: an unattended push must fail, not wait on a host-key or password prompt.
+        # ServerAlive*: a lane that sleeps or loses power mid-push or mid-verify drops the connection
+        # after about 2 min instead of leaving the requester waiting for hours. The push's
         # stderr (remote: lines, banners) is lane-authored text.
         push_rc=0
-        git -c core.sshCommand='ssh -o BatchMode=yes' push -q -- "$lane_ssh:$lane_repos/$project.git" "$sha:refs/verify/$sha" 2>&1 \
+        git -c core.sshCommand='ssh -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=4' push -q -- "$lane_ssh:$lane_repos/$project.git" "$sha:refs/verify/$sha" 2>&1 \
             | agent_text >&2 || push_rc="${PIPESTATUS[0]}"
         [ "$push_rc" = 0 ] || die "could not push $sha to lane $lane (ssh access, or $lane_repos/$project.git missing on the lane)"
     fi
@@ -89,7 +91,7 @@ verify)
         if [ -n "$lane" ]; then
             # Config values are passed as separate arguments, never through a shell string. The lane's
             # sshd runs the remote command through the lane user's shell; sha and project are validated.
-            ssh -o BatchMode=yes -- "$lane_ssh" .local/bin/chargehand-lane verify --project "$project" "$sha" 2>&1 \
+            ssh -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=4 -- "$lane_ssh" .local/bin/chargehand-lane verify --project "$project" "$sha" 2>&1 \
                 | agent_text | announce_start || rc="${PIPESTATUS[0]}"   # runner output is agent-authored text
         else
         sudo -n -u "$(config_get agent_user opencode)" "$(config_get launcher /usr/local/bin/chargehand-sandbox)" \
@@ -105,11 +107,16 @@ verify)
     case "$rc" in
         0) ;;
         10) echo "chargehand: verify FAILED: the build or a suite failed or timed out (see above)" >&2; exit 10 ;;
-        3)  echo "chargehand: verify not run: another verify of $project is running" >&2; exit 3 ;;
+        3)  if [ -n "$lane" ]; then echo "chargehand: verify not run: another verify is running on lane $lane" >&2
+            else echo "chargehand: verify not run: another verify of $project is running" >&2; fi
+            exit 3 ;;
         4)  if [ -n "$lane" ]; then echo "chargehand: verify not run: the lane's container runtime is unavailable" >&2
             else echo "chargehand: verify not run: the sandbox could not start (Podman socket missing?)" >&2; fi
             exit 4 ;;
-        *)  echo "chargehand: verify not run: could not run the verification (launcher exit $rc: sudo refused, an out-of-date launcher or sudoers, or the sandbox/checkout failed; see above)" >&2; exit "$rc" ;;
+        *)  if [ -n "$lane" ]; then
+                echo "chargehand: verify not run: could not reach or run the lane controller on $lane (ssh exit $rc)" >&2; exit "$rc"
+            fi
+            echo "chargehand: verify not run: could not run the verification (launcher exit $rc: sudo refused, an out-of-date launcher or sudoers, or the sandbox/checkout failed; see above)" >&2; exit "$rc" ;;
     esac
     # Only a passing run is recorded: accept takes exactly this commit and nothing a later fetch brought.
     mkdir -p "$verified"
