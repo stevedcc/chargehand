@@ -61,7 +61,7 @@ The Docker path is fake-tested only (no real Docker run yet); on Docker the runn
 
 Owner steps (sudo, on the lane machine): the dedicated user with rootless Podman (lingering, so
 its socket is up without a login), the RAM, a registry login to push the runner image. Then:
-1. Build and push the runner image: `images/build.sh`; put its digest and the services' digests in
+1. Build and push the runner image: `images/build.sh` (`--platforms linux/amd64` when every lane is x86; the emulated arm64 build takes long); put its digest and the services' digests in
    `~/.config/chargehand/lane.json` (shape: `examples/lane.json`, whose all-zero digests are
    placeholders that pass `lane_check` and run nothing).
 2. As the lane user, no sudo: `bash <plugin>/skills/setting-up-agent-sandbox/scripts/setup-lane.sh --project <name>`.

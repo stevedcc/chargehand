@@ -64,6 +64,21 @@ test_podman_builds_both_architectures_into_one_manifest() {
     assert_not_contains "no stale manifest to remove" "$(rt_log)" "manifest rm"
     assert_not_contains "no push" "$(rt_log)" "push"
 }
+test_platforms_option_builds_only_those() {
+    fake_rt
+    FAKE_RT_OUT_images="$LOCAL_LIST" build "${ARGS[@]}" --platforms linux/amd64
+    assert_eq "exit" "$RC" "0"
+    assert_contains "one platform" "$(rt_log)" "podman build --platform linux/amd64 --manifest $TAG "
+    FAKE_RT_OUT_images="$LOCAL_LIST" build "${ARGS[@]}" --platforms "linux/arm64,linux/amd64"
+    assert_contains "both, in the given order" "$(rt_log)" "podman build --platform linux/arm64,linux/amd64 --manifest $TAG "
+    : > "$TEST_TMP/rt.log"
+    build "${ARGS[@]}" --platforms linux/s390x; assert_eq "unknown platform" "$RC" "2"
+    assert_contains "platform message" "$ERR" 'unknown platform "linux/s390x" (expected linux/amd64 or linux/arm64)'
+    build "${ARGS[@]}" --platforms ""; assert_eq "empty platforms" "$RC" "2"
+    build "${ARGS[@]}" --platforms "linux/amd64,"; assert_eq "trailing comma" "$RC" "2"
+    build "${ARGS[@]}" --platforms; assert_eq "missing value" "$RC" "2"
+    assert_eq "no runtime call" "$(rt_log)" ""
+}
 test_podman_rebuild_starts_a_new_manifest() {
     fake_rt
     FAKE_MANIFEST_EXISTS=0 FAKE_RT_OUT_images="$LOCAL_LIST" build "${ARGS[@]}"
