@@ -15,7 +15,7 @@
 #                  "chargehand: verify of <sha> started <time>" the moment the launcher really starts.
 #                  --lane <name>: verify on the container lane <name> from lanes.json (ssh destination and
 #                  repos_dir) instead of the local sandbox: pushes the commit to the lane, runs
-#                  `chargehand-lane verify` there over ssh. Same exit codes; the record says lane=<name>.
+#                  `.local/bin/chargehand-lane verify` (relative to the lane user's HOME) there over ssh. Same exit codes; the record says lane=<name>.
 #   accept [br]    fast-forward the target branch to agent/<br> (default the target), push the mirror,
 #                  delete your local brief/<tag> if it is now merged
 # Never build, test or run agent-authored code as yourself before accept. Reading diffs is safe.
@@ -89,7 +89,7 @@ verify)
         if [ -n "$lane" ]; then
             # Config values are passed as separate arguments, never through a shell string. The lane's
             # sshd runs the remote command through the lane user's shell; sha and project are validated.
-            ssh -o BatchMode=yes -- "$lane_ssh" chargehand-lane verify --project "$project" "$sha" 2>&1 \
+            ssh -o BatchMode=yes -- "$lane_ssh" .local/bin/chargehand-lane verify --project "$project" "$sha" 2>&1 \
                 | agent_text | announce_start || rc="${PIPESTATUS[0]}"   # runner output is agent-authored text
         else
         sudo -n -u "$(config_get agent_user opencode)" "$(config_get launcher /usr/local/bin/chargehand-sandbox)" \
