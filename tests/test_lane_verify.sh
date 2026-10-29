@@ -38,6 +38,9 @@ if [ "$1" = run ] && [[ " $* " == *" --name chv-"*"-suites "* ]]; then
         prev="$a"
     done
 fi
+if [ "$1" = wait ] && [ -n "${FAKE_WAIT_BLOCK:-}" ] && [[ "$2" == chv-*-"$FAKE_WAIT_BLOCK" ]]; then
+    echo "podman $*" >> "$TEST_TMP/rt.log"; exec sleep 60   # a runner that never stops
+fi
 if [ "$1" = wait ] && [[ "$2" == chv-*-suites ]]; then export FAKE_RT_OUT_wait="${SUITES_RC:-0}"; fi
 exec "$TEST_TMP/real/podman" "$@"
 EOF
@@ -181,6 +184,38 @@ test_suites_failure_exits_10() {
     lane_setup
     SUITES_RC=1 verify
     assert_eq "exit" "$RC" "10"
+}
+test_runner_output_is_followed_before_the_verdict() {
+    lane_setup
+    FAKE_RT_OUT_logs='restore says hi' FAKE_RT_OUT_wait=1 verify
+    local run follow next
+    run="$(grep -n "^podman run .* --name chv-$SHA7-restore " "$TEST_TMP/rt.log" | cut -d: -f1)"
+    follow="$(grep -n "^podman logs -f chv-$SHA7-restore$" "$TEST_TMP/rt.log" | cut -d: -f1)"
+    next="$(grep -n "^podman rm -f chv-$SHA7-restore$" "$TEST_TMP/rt.log" | cut -d: -f1)"
+    assert_eq "follow after run, before rm" "$(( ${run:-999} < ${follow:-0} && ${follow:-999} < ${next:-0} ))" "1"
+    assert_eq "output, then the verdict" "$(grep -E 'restore says hi|RESTORE FAILED' <<<"$OUT")" $'restore says hi\nRESTORE FAILED'
+    lane_setup
+    FAKE_RT_OUT_logs='suites say hi' verify
+    follow="$(grep -n "^podman logs -f chv-$SHA7-suites$" "$TEST_TMP/rt.log" | cut -d: -f1)"
+    next="$(grep -n "^podman wait chv-$SHA7-suites$" "$TEST_TMP/rt.log" | cut -d: -f1)"
+    assert_eq "suites followed" "$(( ${follow:-0} > 0 && ${next:-0} > 0 ))" "1"
+    assert_eq "suites output before digests" "$(tail -2 <<<"$OUT" | head -1)" "suites say hi"
+}
+test_restore_that_never_ends_times_out() {
+    lane_setup '.verify_timeout_min = 0.02'
+    CHARGEHAND_LANE_GRACE_SEC=0 FAKE_WAIT_BLOCK=restore verify
+    assert_eq "exit" "$RC" "10"
+    assert_contains "message" "$OUT" "TIMED OUT (controller) after 0.02 min: restore"
+    assert_contains "runner removed" "$(rt_log)" "podman rm -f chv-$SHA7-restore"
+    assert_eq "network removed last" "$(rt_log | tail -1)" "podman network rm chv-$SHA7"
+    assert_eq "run dir removed" "$([ -e "$HOME/lane/work/run-$SHA7" ] && echo there || echo gone)" "gone"
+}
+test_suites_deadline_counts_every_test() {
+    lane_setup '.verify_timeout_min = 0.02'
+    CHARGEHAND_LANE_GRACE_SEC=0 FAKE_WAIT_BLOCK=suites verify
+    assert_eq "exit" "$RC" "10"
+    assert_contains "message (0.02 x (1 + 2 tests))" "$OUT" "TIMED OUT (controller) after 0.06 min: suites"
+    assert_contains "runner removed" "$(rt_log)" "podman rm -f chv-$SHA7-suites"
 }
 
 run_tests

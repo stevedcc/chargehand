@@ -20,21 +20,12 @@ usage() { sed -n '4,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 cant_run() { echo "chargehand-lane: $*" >&2; exit 1; }
 runtime_unavailable() { echo "chargehand-lane: the container runtime is unavailable ($CHARGEHAND_RUNTIME)" >&2; exit 4; }
 
-# The runtime's built-in network with outbound access, for the restore phase only.
-default_network() {
-    case "$CHARGEHAND_RUNTIME" in
-        podman) echo podman ;;
-        docker) echo bridge ;;
-        container) echo default ;;
-    esac
-}
-
 # env_args JSON_OBJECT: prints --env and K=V, one per line, for mapfile.
 env_args() { jq -r 'to_entries[] | "--env", "\(.key)=\(.value)"' <<<"$1"; }
 
 # The run's state, for the EXIT trap. Containers and the network are recorded before they are
 # created, so a half-created one is removed too.
-STARTED=() NETWORK="" RUN_DIR="" RUNNER_DIGEST="" SERVICE_DIGESTS=()
+STARTED=() NETWORK="" RUN_DIR="" RUNNER_DIGEST="" SERVICE_DIGESTS=() FOLLOW_PID=""
 
 record_digest() {   # record_digest NAME IMAGE
     local d; d="$(rt_image_digest "$2" 2>/dev/null)" || d=unavailable
@@ -44,6 +35,7 @@ record_digest() {   # record_digest NAME IMAGE
 cleanup() {
     local rc=$? c line
     trap - EXIT
+    stop_follow
     for c in "${STARTED[@]}"; do rt_rm "$c"; done
     if [ -n "$NETWORK" ]; then
         rt_network_rm "$NETWORK" >/dev/null 2>&1 || echo "chargehand-lane: could not remove network $NETWORK (the next verify retries)" >&2
@@ -60,12 +52,34 @@ cleanup() {
     exit "$rc"
 }
 
-# wait_runner NAME: waits for a runner, prints its output, sets RUNNER_RC to its exit code.
+stop_follow() {
+    [ -n "$FOLLOW_PID" ] || return 0
+    kill "$FOLLOW_PID" 2>/dev/null; wait "$FOLLOW_PID" 2>/dev/null; FOLLOW_PID=""
+}
+
+# minutes EXPR: awk arithmetic on minutes (fractions allowed), printed short (0.06, 95).
+minutes() { awk "BEGIN { printf \"%g\", $1 }"; }
+
+# wait_runner NAME PHASE MINUTES: streams the runner's output while it runs and sets RUNNER_RC to
+# its exit code (from rt_wait, not from the stream). The runner's own timeouts run inside code under
+# test, which can kill or outlive them, so the controller holds its own deadline: past MINUTES the
+# runner is removed and the verify fails.
 wait_runner() {
-    local code
-    code="$(rt_wait "$1")" || cant_run "could not wait for $1"
-    rt_logs "$1" 2>&1 || echo "chargehand-lane: could not read the output of $1" >&2
-    [[ "$code" =~ ^[0-9]+$ ]] || cant_run "no exit code from $1"
+    local c="$1" phase="$2" mins="$3" code rc=0
+    rt_logs_follow "$c" 2>&1 9>&- &
+    FOLLOW_PID=$!
+    code="$(timeout "$(minutes "$mins * 60")" bash -c '. "$1/runtime.sh"; rt_wait "$2"' _ "$LANE_LIB" "$c" 9>&-)" || rc=$?
+    if [ "$rc" -eq 124 ]; then
+        rt_rm "$c"
+        stop_follow
+        echo "TIMED OUT (controller) after $mins min: $phase"
+        exit 10
+    fi
+    # The stream ends when the container stops: all its output is out before the verdict.
+    wait "$FOLLOW_PID" || echo "chargehand-lane: could not stream the output of $c" >&2
+    FOLLOW_PID=""
+    [ "$rc" -eq 0 ] || cant_run "could not wait for $c"
+    [[ "$code" =~ ^[0-9]+$ ]] || cant_run "no exit code from $c"
     RUNNER_RC="$code"
 }
 
@@ -90,6 +104,9 @@ verify() {
     memory="$(lane_get .memory)" || exit 2
     timeout_min="$(lane_get .verify_timeout_min)" || exit 2
     runner_image="$(lane_project_get "$project" .runner_image)" || exit 2
+    # The controller's grace on top of the runner's own timeouts (ruling R7: 5 min). Tests shorten it.
+    local grace_sec="${CHARGEHAND_LANE_GRACE_SEC:-300}"
+    [[ "$grace_sec" =~ ^[0-9]+([.][0-9]+)?$ ]] || die "CHARGEHAND_LANE_GRACE_SEC must be a number of seconds"
 
     # 1. One verify at a time on this machine, for the whole verify.
     mkdir -p "$work_dir" || cant_run "cannot create $work_dir"
@@ -170,12 +187,12 @@ verify() {
     # 7. Restore: the only phase with outbound network.
     c="chv-$sha7-restore"
     STARTED+=("$c")
-    rt_run "$c" "$runner_image" "$(default_network)" "$cpus" "$memory" \
+    rt_run "$c" "$runner_image" "$(rt_default_network)" "$cpus" "$memory" \
         --mount "$src:/work" --mount "$recipe:/recipe:ro" --mount "$cache:/cache" \
         --env NUGET_PACKAGES=/cache/nuget --workdir /work -- chargehand-run restore >/dev/null 9>&- \
         || cant_run "could not start $c"
     record_digest runner "$runner_image"
-    wait_runner "$c"
+    wait_runner "$c" restore "$(minutes "$timeout_min + $grace_sec / 60")"
     [ "$RUNNER_RC" -eq 0 ] || { echo "RESTORE FAILED"; exit 10; }
 
     # 8. Build and suites on the private network only, the cache read-only.
@@ -186,7 +203,7 @@ verify() {
         --mount "$src:/work" --mount "$recipe:/recipe:ro" --mount "$cache:/cache:ro" --mount "$out:/out" \
         "${envs[@]}" --workdir /work -- chargehand-run suites >/dev/null 9>&- \
         || cant_run "could not start $c"
-    wait_runner "$c"
+    wait_runner "$c" suites "$(minutes "$timeout_min * (1 + $(grep -c . "$recipe/tests")) + $grace_sec / 60")"
 
     # 9. Verdict; 10. the EXIT trap cleans up and prints the digests.
     verdict "$RUNNER_RC" "$out"

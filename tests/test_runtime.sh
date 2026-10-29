@@ -85,4 +85,16 @@ test_pull() {
     assert_eq "pull verbs" "$(rt_log)" "docker pull img
 container image pull img"
 }
+test_logs_follow() {
+    fake_rt; CHARGEHAND_RUNTIME=podman FAKE_RT_OUT_logs=line1 rt_logs_follow r1 > "$TEST_TMP/out"
+    assert_eq "follow output" "$(cat "$TEST_TMP/out")" "line1"
+    CHARGEHAND_RUNTIME=container rt_logs_follow r1 >/dev/null
+    assert_eq "follow verbs" "$(rt_log)" "podman logs -f r1
+container logs --follow r1"
+}
+test_default_network() {
+    assert_eq "podman" "$(CHARGEHAND_RUNTIME=podman rt_default_network)" "podman"
+    assert_eq "docker" "$(CHARGEHAND_RUNTIME=docker rt_default_network)" "bridge"
+    assert_eq "container" "$(CHARGEHAND_RUNTIME=container rt_default_network)" "default"
+}
 run_tests

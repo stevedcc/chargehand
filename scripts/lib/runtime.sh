@@ -24,6 +24,17 @@ rt_network_create() {
     "$bin" network create "${flags[@]}" --label chargehand=1 "$name"
 }
 
+# rt_default_network: the runtime's built-in network, the one with outbound access. Apple's name is
+# UNVERIFIED.
+rt_default_network() {
+    local bin; bin="$(rt_bin)" || return $?
+    case "$bin" in
+        podman) echo podman ;;
+        docker) echo bridge ;;
+        container) echo default ;;
+    esac
+}
+
 rt_network_rm() {
     local bin; bin="$(rt_bin)" || return $?
     if [ "$bin" = container ]; then "$bin" network delete "$1"; else "$bin" network rm "$1"; fi
@@ -71,6 +82,12 @@ rt_wait() {
 }
 
 rt_logs() { local bin; bin="$(rt_bin)" || return $?; "$bin" logs "$1"; }
+
+# rt_logs_follow NAME: streams the container's output until it stops. Apple's --follow is UNVERIFIED.
+rt_logs_follow() {
+    local bin; bin="$(rt_bin)" || return $?
+    if [ "$bin" = container ]; then "$bin" logs --follow "$1"; else "$bin" logs -f "$1"; fi
+}
 
 # rt_rm NAME: force-remove; succeeds when the container is already gone.
 rt_rm() {
