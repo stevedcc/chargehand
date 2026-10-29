@@ -79,6 +79,9 @@ digest; only an image that was **pushed** and has a registry digest counts (a lo
 - The E2E additionally needs `start-local.sh --e2e` to take the Postgres host and the mock IdP's
   URL from the environment. Until that lands, the lane's recipe runs the build and the API and
   Web suites only.
+- A `summary_pattern` per project in `lane.json` (required, non-empty; `lane_check` refuses a lane
+  without it): an extended regex matching each suite's one summary line (`examples/lane.json` has
+  the dotnet one). A suite passes only with exit code 0 and exactly one matching line.
 - **Trusted-only test categories do not run on a lane.** For the reference project those are
   `Container` (builds Dockerfiles, needs the runtime) and `ReadyToRun` (long publish). Run them in
   the local sandbox verify when a change touches what they cover.

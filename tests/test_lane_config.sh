@@ -35,6 +35,14 @@ test_tests_list_required() {
     use_example '.projects.example.tests = []'; lane lane_check; out="$LANE_OUT"
     assert_contains "empty tests" "$out" "example: tests must be a non-empty list"
 }
+test_summary_pattern_required() {
+    use_example 'del(.projects.example.summary_pattern)'; lane lane_check; out="$LANE_OUT"
+    assert_eq "missing exit" "$LANE_RC" "2"
+    assert_contains "missing msg" "$out" "example: summary_pattern must be a non-empty string"
+    use_example '.projects.example.summary_pattern = ""'; lane lane_check; out="$LANE_OUT"
+    assert_eq "empty exit" "$LANE_RC" "2"
+    assert_contains "empty msg" "$out" "example: summary_pattern must be a non-empty string"
+}
 test_home_paths_expand() {
     use_example
     lane lane_get .repos_dir; assert_eq "repos_dir" "$LANE_OUT" "$HOME/lane/repos"

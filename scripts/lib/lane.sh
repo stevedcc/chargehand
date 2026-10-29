@@ -54,7 +54,7 @@ lane_check() {
                     (if (.tests | type == "array" and length > 0 and all(.[]; str)) then empty
                      else "\($p): tests must be a non-empty list" end),
                     (if (.test_filter // "" | type == "string") then empty else "\($p): test_filter must be a string" end),
-                    (if (.summary_pattern // "" | type == "string") then empty else "\($p): summary_pattern must be a string" end),
+                    (if (.summary_pattern | str) then empty else "\($p): summary_pattern must be a non-empty string" end),
                     (if (.env // {} | type == "object" and all(.[]; type == "string")) then empty
                      else "\($p): env must be an object of strings" end),
                     (if (.services // [] | type == "array") then empty else "\($p): services must be a list" end),
