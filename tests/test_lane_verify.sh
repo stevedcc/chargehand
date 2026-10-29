@@ -5,7 +5,8 @@ D0=0000000000000000000000000000000000000000000000000000000000000000
 # lane_setup [jq-filter]: a lane.json (podman, project "demo" with one service "db"), a bare repo
 # with one commit that sits only under refs/verify/ (as the requester pushes it), and the fake
 # runtime behind a wrapper: `wait` on the suites runner prints $SUITES_RC (default 0), and the
-# suites `run` copies its /recipe mount to $TEST_TMP/recipe-copy before the run dir is removed.
+# suites `run` copies its /recipe mount to $TEST_TMP/recipe-copy before the run dir is removed
+# and writes $SUITES_TXT (default: two clean suites) to suites.txt in its /out mount.
 lane_setup() {
     jq -n --arg d "$D0" '{
         runtime: "podman", cpus: 3, memory: "6g",
@@ -35,6 +36,7 @@ lane_setup() {
 if [ "$1" = run ] && [[ " $* " == *" --name chv-"*"-suites "* ]]; then
     prev=; for a in "$@"; do
         if [ "$prev" = -v ] && [[ "$a" == *:/recipe:ro ]]; then cp -r "${a%%:*}" "$TEST_TMP/recipe-copy"; fi
+        if [ "$prev" = -v ] && [[ "$a" == *:/out ]]; then printf '%s\n' "${SUITES_TXT-$(printf '1 0 1\n2 0 1')}" > "${a%%:*}/suites.txt"; fi
         prev="$a"
     done
 fi
@@ -187,6 +189,40 @@ test_suites_failure_exits_10() {
     lane_setup
     SUITES_RC=1 verify
     assert_eq "exit" "$RC" "10"
+}
+test_verdict_needs_one_summary_per_suite() {
+    lane_setup
+    SUITES_TXT=$'1 0 1\n2 0 0' verify
+    assert_eq "exit" "$RC" "10"
+    assert_contains "names suite and reason" "$OUT" "suite 2: no summary line"
+    lane_setup
+    SUITES_TXT=$'1 0 2\n2 0 1' verify
+    assert_eq "exit (two summaries)" "$RC" "10"
+    assert_contains "message" "$OUT" "suite 1: 2 summary lines"
+    lane_setup
+    SUITES_TXT='1 0 0' verify
+    assert_contains "single-line fixture" "$OUT" "suite 1: no summary line"
+}
+test_verdict_fails_a_suite_that_exited_nonzero() {
+    lane_setup
+    SUITES_TXT=$'1 0 1\n2 1 1' verify
+    assert_eq "exit" "$RC" "10"
+    assert_contains "message" "$OUT" "suite 2: exit code 1"
+}
+test_verdict_fails_when_suites_are_missing() {
+    lane_setup
+    SUITES_TXT='' verify
+    assert_eq "no suites.txt content" "$RC" "10"
+    assert_contains "message" "$OUT" "suite 1: no result"
+    lane_setup
+    SUITES_TXT='1 0 1' verify
+    assert_eq "second suite missing" "$RC" "10"
+    assert_contains "message" "$OUT" "suite 2: no result"
+}
+test_verdict_passes_on_clean_summaries() {
+    lane_setup
+    SUITES_TXT=$'1 0 1\n2 0 1' verify
+    assert_eq "exit" "$RC" "0"
 }
 test_runner_output_is_followed_before_the_verdict() {
     lane_setup

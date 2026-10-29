@@ -99,9 +99,28 @@ wait_runner() {
     RUNNER_RC="$code"
 }
 
-# verdict RUNNER_RC OUT_DIR: the verify's exit code. For now the suites runner's own exit code.
+# verdict RUNNER_RC OUT_DIR TEST_COUNT: the verify's exit code, 0 only if the runner exited 0 and
+# out/suites.txt ("<index> <exit-code> <summary-line-count>", one line per suite) shows every suite
+# with exit code 0 and exactly one summary line. A runner that exits 0 without running the suites
+# (or without a summary) fails, naming the suite and the reason. suites.txt is runner-written, so
+# this catches a broken runner, not a hostile one that forges the file.
 verdict() {
-    [ "$1" -eq 0 ] && return 0
+    local rc="$1" out="$2" want="$3" bad=0 n=0 idx code count extra
+    if [ "$rc" -ne 0 ]; then bad=1; fi
+    if [ -f "$out/suites.txt" ]; then
+        while read -r idx code count extra; do
+            [ -n "$idx" ] || continue
+            n=$((n + 1))
+            if [ "$idx" != "$n" ] || ! [[ "$code" =~ ^[0-9]+$ && "$count" =~ ^[0-9]+$ && -z "$extra" ]]; then
+                echo "suite $n: malformed result line"; bad=1; continue
+            fi
+            if [ "$code" -ne 0 ]; then echo "suite $n: exit code $code"; bad=1
+            elif [ "$count" -eq 0 ]; then echo "suite $n: no summary line"; bad=1
+            elif [ "$count" -ne 1 ]; then echo "suite $n: $count summary lines"; bad=1; fi
+        done < "$out/suites.txt"
+    fi
+    while [ "$n" -lt "$want" ]; do n=$((n + 1)); echo "suite $n: no result"; bad=1; done
+    [ "$bad" -eq 0 ] && return 0
     return 10
 }
 
@@ -225,7 +244,7 @@ verify() {
     wait_runner "$c" suites "$(minutes "$timeout_min * (1 + $(grep -c . "$recipe/tests")) + $grace_sec / 60")"
 
     # 9. Verdict; 10. the EXIT trap cleans up and prints the digests.
-    verdict "$RUNNER_RC" "$out"
+    verdict "$RUNNER_RC" "$out" "$(grep -c . "$recipe/tests")"
     exit $?
 }
 

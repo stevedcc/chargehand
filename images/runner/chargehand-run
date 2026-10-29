@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# chargehand-run: the entry point of the runner image. Runs inside the untrusted runner container.
+# Usage: chargehand-run restore | suites
+#   restore  runs /recipe/restore (the only phase with outbound network).
+#   suites   runs /recipe/build, then each line of /recipe/tests, every command under
+#            `timeout -k 30 <timeout_min>m`. Each suite's output goes to /out/full.log, its lines
+#            matching /recipe/filter (with one line of context, like chargehand-sandbox --verify)
+#            to /out/filtered.txt and to stdout, and one line per suite to /out/suites.txt:
+#            "<index> <exit-code> <summary-line-count>" (lines matching /recipe/summary).
+#   Exit 0; 10 when the build or a suite failed or timed out ("TIMED OUT after <n> min: <cmd>");
+#   2 on a usage error or a missing recipe file.
+# The controller does not trust this exit code alone: it reads suites.txt (scripts/lane.sh).
+# CHARGEHAND_RECIPE_DIR and CHARGEHAND_OUT_DIR (default /recipe and /out) exist for the tests.
+set -uo pipefail
+RECIPE="${CHARGEHAND_RECIPE_DIR:-/recipe}" OUT="${CHARGEHAND_OUT_DIR:-/out}"
+
+usage() { echo "usage: chargehand-run restore|suites" >&2; exit 2; }
+need() { [ -f "$RECIPE/$1" ] || { echo "chargehand-run: missing recipe file $RECIPE/$1" >&2; exit 2; }; }
+
+[ "$#" -eq 1 ] || usage
+case "$1" in restore|suites) PHASE="$1" ;; *) usage ;; esac
+need timeout_min
+TIMEOUT_MIN="$(cat "$RECIPE/timeout_min")"
+[[ "$TIMEOUT_MIN" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "chargehand-run: bad timeout_min \"$TIMEOUT_MIN\"" >&2; exit 2; }
+
+# run_limited "<command>": a failed or timed-out command returns non-zero (124 for a timeout).
+run_limited() { timeout -k 30 "${TIMEOUT_MIN}m" bash -c "$1"; }
+# timed_out RC "<command>": says so after the pipeline (the suite filter would drop the message).
+timed_out() {
+    if [ "$1" -eq 124 ]; then echo "TIMED OUT after $TIMEOUT_MIN min: $2" | tee -a "$OUT/full.log" "$OUT/filtered.txt"; fi
+}
+
+if [ "$PHASE" = restore ]; then
+    need restore
+    cmd="$(cat "$RECIPE/restore")" rc=0
+    run_limited "$cmd" || rc=$?
+    if [ "$rc" -eq 124 ]; then echo "TIMED OUT after $TIMEOUT_MIN min: $cmd"; fi
+    [ "$rc" -eq 0 ] || exit 10
+    exit 0
+fi
+
+need build; need tests; need filter; need summary
+FILTER="$(cat "$RECIPE/filter")" SUMMARY="$(cat "$RECIPE/summary")"
+: > "$OUT/filtered.txt"; : > "$OUT/full.log"; : > "$OUT/suites.txt"
+BUILD="$(cat "$RECIPE/build")"
+if [ -n "$BUILD" ]; then
+    run_limited "$BUILD" 2>&1 | tee -a "$OUT/full.log" | grep -E -A1 "$FILTER" | tee -a "$OUT/filtered.txt"
+    rc="${PIPESTATUS[0]}"
+    timed_out "$rc" "$BUILD"
+    if [ "$rc" -ne 0 ]; then echo "BUILD FAILED"; exit 10; fi
+fi
+LOG="$(mktemp)"; trap 'rm -f "$LOG"' EXIT
+status=0 i=0
+while IFS= read -r t <&3; do
+    [ -n "$t" ] || continue
+    i=$((i + 1))
+    run_limited "$t" 2>&1 | tee -a "$OUT/full.log" "$LOG" | grep -E -A1 "$FILTER" | tee -a "$OUT/filtered.txt"
+    rc="${PIPESTATUS[0]}"
+    timed_out "$rc" "$t"
+    [ "$rc" -eq 0 ] || status=10
+    # grep -c prints the count (0 included) and exits 1 on no match; an empty pattern counts nothing.
+    count=0; [ -z "$SUMMARY" ] || count="$(grep -E -c "$SUMMARY" "$LOG")"
+    echo "$i $rc $count" >> "$OUT/suites.txt"
+    : > "$LOG"
+done 3< "$RECIPE/tests"
+exit "$status"
