@@ -77,8 +77,12 @@ verify)
     poll="${CHARGEHAND_VERIFY_POLL_SEC:-30}"; deadline=$(( $(date +%s) + ${CHARGEHAND_VERIFY_WAIT_MAX_SEC:-7200} )); told=0
     if [ -n "$lane" ]; then
         valid_name "$project" || die "bad project name \"$project\""
-        git push -q -- "$lane_ssh:$lane_repos/$project.git" "$sha:refs/verify/$sha" \
-            || die "could not push $sha to lane $lane (ssh access, or $lane_repos/$project.git missing on the lane)"
+        # BatchMode: an unattended push must fail, not wait on a host-key or password prompt. The push's
+        # stderr (remote: lines, banners) is lane-authored text.
+        push_rc=0
+        git -c core.sshCommand='ssh -o BatchMode=yes' push -q -- "$lane_ssh:$lane_repos/$project.git" "$sha:refs/verify/$sha" 2>&1 \
+            | agent_text >&2 || push_rc="${PIPESTATUS[0]}"
+        [ "$push_rc" = 0 ] || die "could not push $sha to lane $lane (ssh access, or $lane_repos/$project.git missing on the lane)"
     fi
     while true; do
         rc=0

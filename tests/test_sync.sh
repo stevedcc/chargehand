@@ -191,7 +191,7 @@ fake_lane() {   # $1 = exit code, $2 = output line to print after "Verifying"
 #!/bin/bash
 printf '%s\n' "\$*" >> "$TEST_TMP/ssh.log"
 last="\${!#}"
-case "\$last" in git-receive-pack*|git-upload-pack*) exec sh -c "\$last" ;; esac
+case "\$last" in git-receive-pack*|git-upload-pack*) printf 'banner \\033]0;owned\\007\\033[2Jpush\\n' >&2; exec sh -c "\$last" ;; esac
 echo "Verifying abc1234 x"
 printf '%b\n' '$2'
 exit $1
@@ -204,10 +204,17 @@ test_lane_verify_pushes_then_calls_the_controller() {
     out="$(PATH="$TEST_TMP/bin:$PATH" sync verify --lane box main 2>&1)"; rc=$?
     assert_eq "passes" "$rc" "0"
     assert_eq "the SHA reached the lane's repo" "$(g -C "$L/demo.git" rev-parse --verify "refs/verify/$sha")" "$sha"
-    assert_contains "ssh argv ends with the controller command" "$(grep -F chargehand-lane "$TEST_TMP/ssh.log")" "chargehand-lane verify --project demo $sha"
+    assert_eq "verify call is exactly BatchMode, --, destination, controller command" "$(grep -F chargehand-lane "$TEST_TMP/ssh.log")" "-o BatchMode=yes -- box chargehand-lane verify --project demo $sha"
+    assert_contains "the push is non-interactive too" "$(grep -F git-receive-pack "$TEST_TMP/ssh.log")" "-o BatchMode=yes"
     assert_contains "announces the start" "$out" "verify of ${sha:0:7} started"
     assert_contains "streams the output" "$out" "Passed!  - Failed: 0, Passed: 1"
     assert_eq "record is sha plus lane" "$(cat "$HARNESS_STATE_DIR/demo/verified/main")" "$sha lane=box"
+}
+test_lane_push_output_is_agent_text() {
+    fake_lane 0 ok
+    out="$(PATH="$TEST_TMP/bin:$PATH" sync verify --lane box main 2>&1)"
+    assert_eq "no ESC from the push reaches the output" "$(printf '%s' "$out" | grep -c $'\033' || true)" "0"
+    assert_contains "push text survives" "$out" "banner"
 }
 test_lane_verify_strips_control_characters() {
     fake_lane 0 'bad \033]0;owned\007text \033[2Jgone'
