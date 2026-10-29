@@ -40,8 +40,31 @@ test_unknown_runtime_dies() {
 test_rm_absent_is_ok() {
     fake_rt; CHARGEHAND_RUNTIME=docker FAKE_RT_RC=1 rt_rm gone; assert_eq "rc" "$?" "0"
 }
-test_digest_is_parsed() {
-    fake_rt; assert_eq "digest" "$(CHARGEHAND_RUNTIME=docker FAKE_RT_OUT_inspect='sha256:abc' rt_image_digest x)" "sha256:abc"
+D64=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+test_digest_is_parsed_from_repo_digests() {
+    fake_rt
+    assert_eq "digest" "$(CHARGEHAND_RUNTIME=podman FAKE_RT_OUT_image="[\"docker.io/library/img@sha256:$D64\"]" rt_image_digest x)" "sha256:$D64"
+    assert_contains "uses image inspect" "$(rt_log)" "podman image inspect --format {{json .RepoDigests}} x"
+}
+test_digest_fails_without_a_repo_digest() {
+    fake_rt
+    local out rc
+    out="$(CHARGEHAND_RUNTIME=podman FAKE_RT_OUT_image='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' rt_image_digest x)"; rc=$?
+    assert_eq "fails" "$((rc != 0))" "1"
+    assert_eq "no output" "$out" ""
+    out="$(CHARGEHAND_RUNTIME=docker FAKE_RT_OUT_image='[]' rt_image_digest x)"; rc=$?
+    assert_eq "fails on empty list" "$((rc != 0))" "1"
+}
+test_apple_wait_reads_exit_code() {
+    fake_rt
+    assert_eq "code" "$(CHARGEHAND_RUNTIME=container FAKE_RT_OUT_inspect='[{"status":"stopped","exitCode":4}]' rt_wait r1)" "4"
+}
+test_apple_wait_without_exit_code_fails() {
+    fake_rt
+    local out rc
+    out="$(CHARGEHAND_RUNTIME=container FAKE_RT_OUT_inspect='[{"status":"stopped"}]' rt_wait r1)"; rc=$?
+    assert_eq "fails" "$((rc != 0))" "1"
+    assert_eq "no output" "$out" ""
 }
 test_per_verb_overrides() {
     fake_rt; export CHARGEHAND_RUNTIME=docker

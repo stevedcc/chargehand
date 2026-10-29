@@ -66,7 +66,8 @@ rt_wait() {
         [ "$(jq -r '.[0].status // .status' <<<"$json")" = stopped ] && break
         sleep 1
     done
-    jq -r '.[0].exitCode // .exitCode // 0' <<<"$json"
+    # A missing exit code must not read as 0 ("passed"): print nothing and fail.
+    jq -er '(.[0] // .) | .exitCode | select(. != null)' <<<"$json" 2>/dev/null || return 1
 }
 
 rt_logs() { local bin; bin="$(rt_bin)" || return $?; "$bin" logs "$1"; }
@@ -83,13 +84,17 @@ rt_pull() {
     if [ "$bin" = container ]; then "$bin" image pull "$1"; else "$bin" pull "$1"; fi
 }
 
-# rt_image_digest IMAGE: prints sha256:...
+# rt_image_digest IMAGE: prints the repo (manifest) digest sha256:...; fails with no output when the
+# image has none (a locally built image, or an unexpected CLI output). The image ID is not used: it is
+# the config digest (docker) or bare hex (podman), not what a pin is made of.
 rt_image_digest() {
     local bin; bin="$(rt_bin)" || return $?
-    local out
+    local out digest
     if [ "$bin" = container ]; then out="$("$bin" image inspect "$1")" || return $?
-    else out="$("$bin" inspect --format '{{.Id}}' "$1")" || return $?; fi
-    grep -o 'sha256:[0-9a-f]*' <<<"$out" | head -n 1
+    else out="$("$bin" image inspect --format '{{json .RepoDigests}}' "$1")" || return $?; fi
+    digest="$(grep -o 'sha256:[0-9a-f]\{64\}' <<<"$out" | head -n 1)"
+    [ -n "$digest" ] || return 1
+    printf '%s\n' "$digest"
 }
 
 rt_ls_labelled() {
