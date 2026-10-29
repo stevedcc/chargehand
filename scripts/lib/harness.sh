@@ -49,6 +49,19 @@ project_get() {
     expand_home "$v"
 }
 
+# lane_remote_get LANE KEY: a key of lane LANE in $HARNESS_CONFIG_DIR/lanes.json
+# ({ "<name>": { "ssh": "<ssh destination>", "repos_dir": "<path on the lane>" } }).
+lane_remote_get() {
+    local file="$HARNESS_CONFIG_DIR/lanes.json" v
+    valid_name "$1" || die "bad lane name \"$1\""
+    v="$(jq -er --arg l "$1" --arg k "$2" '.[$l][$k] | select(type == "string" and length > 0)' "$file" 2>/dev/null)" \
+        || { jq -e --arg l "$1" 'has($l)' "$file" >/dev/null 2>&1 \
+                && die "lane \"$1\" in lanes.json has no \"$2\"" \
+                || die "no lane \"$1\" in lanes.json ($file)"; }
+    case "$2" in ssh) [[ "$v" != -* ]] || die "lane \"$1\": ssh destination must not start with a dash" ;; esac
+    printf '%s\n' "$v"
+}
+
 config_get() {
     local v
     v="$(json_get "$HARNESS_CONFIG_DIR/config.json" "$1" "${@:2}")" || exit 2

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The owner's side of the fork model. Run as yourself.
-# Usage: agent-sync.sh --project <name> push | fetch | diff <ref> | verify [--wait] [ref] | accept [branch]
+# Usage: agent-sync.sh --project <name> push | fetch | diff <ref> | verify [--wait] [--lane <name>] [ref] | accept [branch]
 #   push           push the target branch to the read-only mirror the agents pull from
 #   fetch          fetch the agent clone's branches into agent/* and show what's new
 #   diff <ref>     what ref (e.g. agent/brief/<tag>) adds to the target: git diff <target>...<ref>,
@@ -13,13 +13,16 @@
 #                  so once, retries every CHARGEHAND_VERIFY_POLL_SEC, default 30), up to
 #                  CHARGEHAND_VERIFY_WAIT_MAX_SEC (default 7200), then exit 75. Prints
 #                  "chargehand: verify of <sha> started <time>" the moment the launcher really starts.
+#                  --lane <name>: verify on the container lane <name> from lanes.json (ssh destination and
+#                  repos_dir) instead of the local sandbox: pushes the commit to the lane, runs
+#                  `chargehand-lane verify` there over ssh. Same exit codes; the record says lane=<name>.
 #   accept [br]    fast-forward the target branch to agent/<br> (default the target), push the mirror,
 #                  delete your local brief/<tag> if it is now merged
 # Never build, test or run agent-authored code as yourself before accept. Reading diffs is safe.
 set -euo pipefail
 HARNESS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 . "$HARNESS_ROOT/scripts/lib/harness.sh"
-usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; }
 [ "${1:-}" = --project ] && [ "$#" -ge 2 ] || { usage; exit 2; }
 project="$2"; shift 2
 cmd="${1:-}"; [ "$#" -gt 0 ] && shift
@@ -46,7 +49,18 @@ diff)
     [ -n "${1:-}" ] || die "usage: agent-sync.sh --project $project diff <ref>"
     git --no-pager diff --no-color --no-ext-diff "$target...$1" | agent_text ;;
 verify)
-    wait=0; [ "${1:-}" = --wait ] && { wait=1; shift; }
+    wait=0; lane=""
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --wait) wait=1; shift ;;
+            --lane) [ "$#" -ge 2 ] || die "--lane needs a lane name"; lane="$2"; shift 2 ;;
+            *) break ;;
+        esac
+    done
+    if [ -n "$lane" ]; then
+        lane_ssh="$(lane_remote_get "$lane" ssh)" || exit 2
+        lane_repos="$(lane_remote_get "$lane" repos_dir)" || exit 2
+    fi
     ref="${1:-agent/$target}"
     sha="$(git rev-parse --verify "$ref^{commit}")"
     # The launcher prints "Verifying ..." only once it holds the project's verify lock, so that line
@@ -61,10 +75,22 @@ verify)
         done
     }
     poll="${CHARGEHAND_VERIFY_POLL_SEC:-30}"; deadline=$(( $(date +%s) + ${CHARGEHAND_VERIFY_WAIT_MAX_SEC:-7200} )); told=0
+    if [ -n "$lane" ]; then
+        valid_name "$project" || die "bad project name \"$project\""
+        git push -q -- "$lane_ssh:$lane_repos/$project.git" "$sha:refs/verify/$sha" \
+            || die "could not push $sha to lane $lane (ssh access, or $lane_repos/$project.git missing on the lane)"
+    fi
     while true; do
         rc=0
+        if [ -n "$lane" ]; then
+            # Config values are passed as separate arguments, never through a shell string. The lane's
+            # sshd runs the remote command through the lane user's shell; sha and project are validated.
+            ssh -o BatchMode=yes -- "$lane_ssh" chargehand-lane verify --project "$project" "$sha" 2>&1 \
+                | agent_text | announce_start || rc="${PIPESTATUS[0]}"   # runner output is agent-authored text
+        else
         sudo -n -u "$(config_get agent_user opencode)" "$(config_get launcher /usr/local/bin/chargehand-sandbox)" \
             --verify --project "$project" "$sha" 2>&1 | agent_text | announce_start || rc="${PIPESTATUS[0]}"   # test output is agent-authored text
+        fi
         [ "$rc" = 3 ] && [ "$wait" = 1 ] || break
         if [ "$(date +%s)" -ge "$deadline" ]; then
             echo "chargehand: gave up waiting for the other verify of $project (CHARGEHAND_VERIFY_WAIT_MAX_SEC); verify not run" >&2; exit 75
@@ -76,19 +102,22 @@ verify)
         0) ;;
         10) echo "chargehand: verify FAILED: the build or a suite failed or timed out (see above)" >&2; exit 10 ;;
         3)  echo "chargehand: verify not run: another verify of $project is running" >&2; exit 3 ;;
-        4)  echo "chargehand: verify not run: the sandbox could not start (Podman socket missing?)" >&2; exit 4 ;;
+        4)  if [ -n "$lane" ]; then echo "chargehand: verify not run: the lane's container runtime is unavailable" >&2
+            else echo "chargehand: verify not run: the sandbox could not start (Podman socket missing?)" >&2; fi
+            exit 4 ;;
         *)  echo "chargehand: verify not run: could not run the verification (launcher exit $rc: sudo refused, an out-of-date launcher or sudoers, or the sandbox/checkout failed; see above)" >&2; exit "$rc" ;;
     esac
     # Only a passing run is recorded: accept takes exactly this commit and nothing a later fetch brought.
     mkdir -p "$verified"
-    printf '%s\n' "$sha" > "$verified/$(record_name "$ref")" ;;
+    if [ -n "$lane" ]; then record_text="$sha lane=$lane"; else record_text="$sha"; fi
+    printf '%s\n' "$record_text" > "$verified/$(record_name "$ref")" ;;
 accept)
     [ "$(git branch --show-current)" = "$target" ] || die "run accept with $target checked out in $repo"
     [ -z "$(git status --porcelain --untracked-files=no)" ] || die "$repo has uncommitted changes: set them aside (patch), accept, then re-apply"
     src="agent/${1:-$target}"
     record="$verified/$(record_name "$src")"
     [ -s "$record" ] || die "$src is not verified: run verify $src first (only a passing verify counts)"
-    sha="$(<"$record")"; now="$(git rev-parse --verify "$src^{commit}")"
+    sha="$(<"$record")"; sha="${sha%% *}"; now="$(git rev-parse --verify "$src^{commit}")"
     [ "$now" = "$sha" ] || die "$src moved since verify ($sha verified, now $now): read the new commits, then verify again"
     git merge-base --is-ancestor "$target" "$sha" \
         || die "$src is not a fast-forward of $target: ask the agent to merge origin/$target into it, then fetch and verify again"
