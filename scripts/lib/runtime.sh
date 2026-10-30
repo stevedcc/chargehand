@@ -151,7 +151,7 @@ rt_image_digest() {
     # The digest the image was pinned by (IMAGE@sha256:...) when the runtime lists it: a
     # multi-platform image also has its platform manifest's digest, which may come first.
     local pinned="${1##*@}"
-    if [[ "$1" == *@sha256:* ]] && grep -qx "$pinned" <(grep -o 'sha256:[0-9a-f]\{64\}' <<<"$out"); then
+    if [[ "$1" == *@sha256:* ]] && grep -qxF "$pinned" <(grep -o 'sha256:[0-9a-f]\{64\}' <<<"$out"); then
         digest="$pinned"
     else
         digest="$(grep -o 'sha256:[0-9a-f]\{64\}' <<<"$out" | head -n 1)"
