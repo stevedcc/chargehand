@@ -350,7 +350,7 @@ test_a_hung_runtime_call_is_ended_by_the_overall_limit() {
     assert_contains "the hung run had started" "$(rt_log)" "--name chv-$SHA7-restore"
     assert_contains "runner removed" "$(rt_log)" "podman rm -f chv-$SHA7-restore"
     assert_contains "network removed" "$(rt_log)" "podman network rm chv-$SHA7"
-    assert_eq "no watchdog flag left" "$(ls -A "$HOME/lane/work" | grep -c '^\.watchdog' || true)" "0"
+    assert_eq "no watchdog flag left" "$(ls -A "$HOME/lane/work" >/dev/null && { ls -A "$HOME/lane/work" | grep -c '^\.watchdog' || true; })" "0"
 }
 test_a_normal_verify_is_untouched_by_the_watchdog() {
     # MiMo review of the watchdog: a finished run must keep its verdict, and nothing of the
@@ -359,8 +359,9 @@ test_a_normal_verify_is_untouched_by_the_watchdog() {
     CHARGEHAND_LANE_WATCHDOG_SEC=4321 verify
     assert_eq "exit" "$RC" "0"
     assert_not_contains "no watchdog message" "$OUT" "overall limit"
+    command -v pgrep >/dev/null || fail "pgrep missing"
     assert_eq "no watchdog sleep left" "$(pgrep -fx 'sleep 4321' | wc -l)" "0"
-    assert_eq "no watchdog files left" "$(ls -A "$HOME/lane/work" | grep -c '^\.watchdog' || true)" "0"
+    assert_eq "no watchdog files left" "$(ls -A "$HOME/lane/work" >/dev/null && { ls -A "$HOME/lane/work" | grep -c '^\.watchdog' || true; })" "0"
 }
 test_watchdog_limit_must_be_at_least_a_second() {
     lane_setup

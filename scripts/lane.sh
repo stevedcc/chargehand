@@ -40,6 +40,7 @@ record_digest() {   # record_digest NAME IMAGE
 
 cleanup() {
     local rc=$? c line
+    trap '' TERM   # nothing interrupts cleanup (the watchdog's TERM included)
     trap - EXIT
     CLEANING=1
     [ -n "$WD_DONE" ] && : > "$WD_DONE"
@@ -105,15 +106,16 @@ watchdog() {
     : > "$WD_FIRED"
     echo "chargehand-lane: the verify exceeded its overall limit of $limit s (a hung container runtime call, or a run slower than its own deadlines allow); stopping it" >&3
     exec 3>&-
-    kids="$(descendants "$self" "$me")"
-    for k in $kids; do kill -TERM "$k" 2>/dev/null; done
+    local termed
+    termed="$(descendants "$self" "$me")"
+    for k in $termed; do kill -TERM "$k" 2>/dev/null; done
     kill -TERM "$self" 2>/dev/null
     # In the background, so the controller's stop_watchdog (TERM) ends it at once.
     sleep "$grace" </dev/null >/dev/null & sp=$!
     wait "$sp" || exit 0
     sp=""
     kids="$(descendants "$self" "$me")"
-    for k in $kids; do kill -KILL "$k" 2>/dev/null; done
+    for k in $termed $kids; do kill -KILL "$k" 2>/dev/null; done
     exit 0
 }
 
@@ -227,7 +229,7 @@ verify() {
     # limit adds one more grace and 10 min for pulls and set-up. A run it stops ends as "could not
     # run" (exit 1): a runtime fault, not the commit's.
     local n_tests limit_sec
-    n_tests="$(lane_project_get "$project" '.tests | length')" || exit 2
+    n_tests="$(lane_project_get "$project" '.tests | if type == "array" then length else "not a list" end')" || exit 2
     [[ "$n_tests" =~ ^[0-9]+$ ]] || die "lane.json: projects.$project.tests must be a list"
     limit_sec="${CHARGEHAND_LANE_WATCHDOG_SEC:-$(awk -v m="$timeout_min" -v n="$n_tests" -v g="$grace_sec" \
         'BEGIN { printf "%d", m * 60 * (n + 2) + 3 * g + 600 }')}"
