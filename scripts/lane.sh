@@ -27,7 +27,7 @@ env_args() { jq -r 'to_entries[] | "--env", "\(.key)=\(.value)"' <<<"$1"; }
 
 # The run's state, for the EXIT trap. Containers and the network are recorded before they are
 # created, so a half-created one is removed too.
-STARTED=() NETWORK="" RUN_DIR="" RUNNER_DIGEST="" SERVICE_DIGESTS=() FOLLOW_PID=""
+STARTED=() NETWORK="" RUN_DIR="" RUNNER_DIGEST="" SERVICE_DIGESTS=() FOLLOW_PID="" WATCHDOG_PID=""
 
 record_digest() {   # record_digest NAME IMAGE
     local d; d="$(rt_image_digest "$2" 2>/dev/null)" || d=unavailable
@@ -37,6 +37,7 @@ record_digest() {   # record_digest NAME IMAGE
 cleanup() {
     local rc=$? c line
     trap - EXIT
+    stop_watchdog
     stop_follow
     for c in "${STARTED[@]}"; do rt_rm "$c"; done
     if [ -n "$NETWORK" ]; then
@@ -52,6 +53,14 @@ cleanup() {
         echo "$line"
     fi
     exit "$rc"
+}
+
+# stop_watchdog: ends the overall-limit watchdog (it kills its own sleep on TERM; a leftover sleep
+# would hold the requester's SSH session open).
+stop_watchdog() {
+    [ -n "$WATCHDOG_PID" ] || return 0
+    kill "$WATCHDOG_PID" 2>/dev/null; wait "$WATCHDOG_PID" 2>/dev/null
+    WATCHDOG_PID=""
 }
 
 # stop_follow: ends the output stream, the runtime CLI included: an orphaned `logs -f` would keep
@@ -155,7 +164,33 @@ verify() {
     exec 9>"$work_dir/suite.lock"
     flock -n 9 || { echo "chargehand-lane: another verify is running on this machine" >&2; exit 3; }
     trap cleanup EXIT
-    trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
+    trap 'exit 129' HUP; trap 'exit 130' INT
+    # The watchdog's TERM ends the verify as "could not run" (exit 1): a runtime fault, not the commit's.
+    local wd_flag="$work_dir/.watchdog-$$"; rm -f "$wd_flag"
+    trap '[ -e "$wd_flag" ] && { rm -f "$wd_flag"; exit 1; }; exit 143' TERM
+
+    # 1b. Overall limit (GLM review of #23/#24): the runner's phases have deadlines, but a hung
+    # runtime call (a wedged pull, exec, chown or network call) would hold the machine lock and the
+    # requester's SSH session forever. Past the limit the watchdog stops every child of this
+    # controller (bash runs a trap only once its foreground child returns), then the controller.
+    local n_tests limit_sec self=$$
+    n_tests="$(lane_project_get "$project" '.tests | length')" || exit 2
+    limit_sec="${CHARGEHAND_LANE_WATCHDOG_SEC:-$(awk -v m="$timeout_min" -v n="$n_tests" -v g="$grace_sec" \
+        'BEGIN { printf "%d", m * 60 * (n + 2) + 3 * g + 600 }')}"
+    [[ "$limit_sec" =~ ^[0-9]+$ ]] || die "CHARGEHAND_LANE_WATCHDOG_SEC must be a whole number of seconds"
+    (
+        # fd 3: the requester's stderr, for the one message; everything else, bash's job notices
+        # included, goes nowhere. Stopped early (stop_watchdog), it ends its sleep and exits quietly.
+        exec 9>&- 3>&2 2>/dev/null
+        trap 'kill "$sp" 2>/dev/null; exit 0' TERM
+        sleep "$limit_sec" </dev/null >/dev/null & sp=$!
+        wait "$sp" || exit 0
+        echo "chargehand-lane: the verify exceeded its overall limit of $limit_sec s (a container runtime call hung?); stopping it" >&3
+        : > "$wd_flag"
+        kill -TERM "$self" 2>/dev/null
+        pkill -TERM -P "$self" 2>/dev/null
+    ) &
+    WATCHDOG_PID=$!
 
     # 2. Whatever a killed verify left behind. Only the lane uses the runtime on this machine, so
     # everything labelled chargehand.role=verify is the lane's. Not chargehand=1: later plans run

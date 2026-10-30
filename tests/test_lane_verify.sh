@@ -52,6 +52,9 @@ fi
 if [ "$1" = wait ] && [ -n "${FAKE_WAIT_BLOCK:-}" ] && [[ "$2" == chv-*-"$FAKE_WAIT_BLOCK" ]]; then
     echo "podman $*" >> "$TEST_TMP/rt.log"; exec sleep 60   # a runner that never stops
 fi
+if [ "$1" = run ] && [ -n "${FAKE_RUN_BLOCK:-}" ] && [[ " $* " == *" --name chv-"*"-$FAKE_RUN_BLOCK "* ]]; then
+    echo "podman $*" >> "$TEST_TMP/rt.log"; exec sleep 60   # a runtime call that hangs (e.g. a wedged pull)
+fi
 if [ "$1" = logs ] && [ -n "${FAKE_LOGS_BLOCK:-}" ]; then
     echo "podman $*" >> "$TEST_TMP/rt.log"; echo "${FAKE_RT_OUT_logs:-}"; exec sleep 60   # a stream that never ends
 fi
@@ -334,6 +337,18 @@ test_restore_that_never_ends_times_out() {
     assert_eq "network removed second to last" "$(rt_log | tail -2 | head -1)" "podman network rm chv-$SHA7"
     assert_eq "run dir removed last" "$(rt_log | tail -1)" "podman unshare rm -rf $HOME/lane/work/run-$SHA7"
     assert_eq "run dir removed" "$([ -e "$HOME/lane/work/run-$SHA7" ] && echo there || echo gone)" "gone"
+}
+test_a_hung_runtime_call_is_ended_by_the_overall_limit() {
+    # GLM review of #23/#24: only rt_wait had a deadline; a hung pull or exec held the machine lock
+    # and the ssh session forever.
+    lane_setup
+    local t0=$SECONDS
+    CHARGEHAND_LANE_WATCHDOG_SEC=2 FAKE_RUN_BLOCK=restore verify
+    assert_eq "exit (could not run)" "$RC" "1"
+    assert_contains "message" "$OUT" "exceeded its overall limit of 2 s"
+    assert_eq "ends promptly" "$(( SECONDS - t0 < 15 ))" "1"
+    assert_contains "runner removed" "$(rt_log)" "podman rm -f chv-$SHA7-restore"
+    assert_contains "network removed" "$(rt_log)" "podman network rm chv-$SHA7"
 }
 test_suites_deadline_counts_every_test() {
     lane_setup '.verify_timeout_min = 0.02'
