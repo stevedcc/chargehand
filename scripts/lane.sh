@@ -27,7 +27,11 @@ env_args() { jq -r 'to_entries[] | "--env", "\(.key)=\(.value)"' <<<"$1"; }
 
 # The run's state, for the EXIT trap. Containers and the network are recorded before they are
 # created, so a half-created one is removed too.
-STARTED=() NETWORK="" RUN_DIR="" RUNNER_DIGEST="" SERVICE_DIGESTS=() FOLLOW_PID="" WATCHDOG_PID=""
+STARTED=() NETWORK="" RUN_DIR="" RUNNER_DIGEST="" SERVICE_DIGESTS=() FOLLOW_PID=""
+# The overall-limit watchdog (step 1b): its pid, the file it creates when it fires, the file
+# cleanup creates first (so a watchdog that wakes at the finish line stands down), and whether
+# cleanup is running (a TERM then changes nothing: cleanup finishes and reports).
+WATCHDOG_PID="" WD_FIRED="" WD_DONE="" CLEANING=""
 
 record_digest() {   # record_digest NAME IMAGE
     local d; d="$(rt_image_digest "$2" 2>/dev/null)" || d=unavailable
@@ -37,7 +41,11 @@ record_digest() {   # record_digest NAME IMAGE
 cleanup() {
     local rc=$? c line
     trap - EXIT
+    CLEANING=1
+    [ -n "$WD_DONE" ] && : > "$WD_DONE"
     stop_watchdog
+    if [ -n "$WD_FIRED" ] && [ -e "$WD_FIRED" ]; then rc=1; fi   # the watchdog stopped this run
+    rm -f "${WD_FIRED:-/nonexistent}" "${WD_DONE:-/nonexistent}"
     stop_follow
     for c in "${STARTED[@]}"; do rt_rm "$c"; done
     if [ -n "$NETWORK" ]; then
@@ -61,6 +69,52 @@ stop_watchdog() {
     [ -n "$WATCHDOG_PID" ] || return 0
     kill "$WATCHDOG_PID" 2>/dev/null; wait "$WATCHDOG_PID" 2>/dev/null
     WATCHDOG_PID=""
+}
+
+# on_term: the TERM handler. During cleanup it does nothing (cleanup finishes and reports); else
+# the run ends (exit 1 when the watchdog stopped it, 143 for any other TERM; cleanup decides).
+on_term() {
+    [ -n "$CLEANING" ] && return 0
+    exit 143
+}
+
+# descendants PID SKIP: every process below PID, deepest last, except SKIP and its own subtree.
+descendants() {
+    local c
+    for c in $(pgrep -P "$1"); do
+        [ "$c" = "$2" ] && continue
+        echo "$c"; descendants "$c" "$2"
+    done
+}
+
+# watchdog SELF LIMIT_SEC GRACE_SEC: runs in the background. After LIMIT_SEC, unless the run has
+# finished (WD_DONE), it marks the run as stopped (WD_FIRED), stops the controller's children
+# and their children (the hung runtime call, often inside a command substitution that waits for its
+# pipe: bash runs a trap only once its foreground child returns), then TERMs the controller;
+# processes that ignore TERM get KILL after GRACE_SEC. It never signals itself.
+watchdog() {
+    local self="$1" limit="$2" grace="$3" sp="" me="$BASHPID" kids k
+    # fd 3: the requester's stderr, for the one message; nothing else of the watchdog may hold
+    # the requester's SSH session (stdout, stderr) or the machine lock (fd 9).
+    exec 9>&- 3>&2 >/dev/null 2>/dev/null
+    trap '[ -n "$sp" ] && kill "$sp"; exit 0' TERM
+    sleep "$limit" </dev/null >/dev/null 3>&- & sp=$!
+    wait "$sp" || exit 0
+    sp=""
+    [ -e "$WD_DONE" ] && exit 0
+    : > "$WD_FIRED"
+    echo "chargehand-lane: the verify exceeded its overall limit of $limit s (a hung container runtime call, or a run slower than its own deadlines allow); stopping it" >&3
+    exec 3>&-
+    kids="$(descendants "$self" "$me")"
+    for k in $kids; do kill -TERM "$k" 2>/dev/null; done
+    kill -TERM "$self" 2>/dev/null
+    # In the background, so the controller's stop_watchdog (TERM) ends it at once.
+    sleep "$grace" </dev/null >/dev/null & sp=$!
+    wait "$sp" || exit 0
+    sp=""
+    kids="$(descendants "$self" "$me")"
+    for k in $kids; do kill -KILL "$k" 2>/dev/null; done
+    exit 0
 }
 
 # stop_follow: ends the output stream, the runtime CLI included: an orphaned `logs -f` would keep
@@ -164,32 +218,26 @@ verify() {
     exec 9>"$work_dir/suite.lock"
     flock -n 9 || { echo "chargehand-lane: another verify is running on this machine" >&2; exit 3; }
     trap cleanup EXIT
-    trap 'exit 129' HUP; trap 'exit 130' INT
-    # The watchdog's TERM ends the verify as "could not run" (exit 1): a runtime fault, not the commit's.
-    local wd_flag="$work_dir/.watchdog-$$"; rm -f "$wd_flag"
-    trap '[ -e "$wd_flag" ] && { rm -f "$wd_flag"; exit 1; }; exit 143' TERM
+    trap 'exit 129' HUP; trap 'exit 130' INT; trap on_term TERM
 
     # 1b. Overall limit (GLM review of #23/#24): the runner's phases have deadlines, but a hung
     # runtime call (a wedged pull, exec, chown or network call) would hold the machine lock and the
-    # requester's SSH session forever. Past the limit the watchdog stops every child of this
-    # controller (bash runs a trap only once its foreground child returns), then the controller.
-    local n_tests limit_sec self=$$
+    # requester's SSH session forever. The runner's own worst case is restore (timeout + grace)
+    # plus suites (timeout x (1 + tests) + grace), i.e. timeout x (tests + 2) + 2 x grace; the
+    # limit adds one more grace and 10 min for pulls and set-up. A run it stops ends as "could not
+    # run" (exit 1): a runtime fault, not the commit's.
+    local n_tests limit_sec
     n_tests="$(lane_project_get "$project" '.tests | length')" || exit 2
+    [[ "$n_tests" =~ ^[0-9]+$ ]] || die "lane.json: projects.$project.tests must be a list"
     limit_sec="${CHARGEHAND_LANE_WATCHDOG_SEC:-$(awk -v m="$timeout_min" -v n="$n_tests" -v g="$grace_sec" \
         'BEGIN { printf "%d", m * 60 * (n + 2) + 3 * g + 600 }')}"
-    [[ "$limit_sec" =~ ^[0-9]+$ ]] || die "CHARGEHAND_LANE_WATCHDOG_SEC must be a whole number of seconds"
-    (
-        # fd 3: the requester's stderr, for the one message; everything else, bash's job notices
-        # included, goes nowhere. Stopped early (stop_watchdog), it ends its sleep and exits quietly.
-        exec 9>&- 3>&2 2>/dev/null
-        trap 'kill "$sp" 2>/dev/null; exit 0' TERM
-        sleep "$limit_sec" </dev/null >/dev/null & sp=$!
-        wait "$sp" || exit 0
-        echo "chargehand-lane: the verify exceeded its overall limit of $limit_sec s (a container runtime call hung?); stopping it" >&3
-        : > "$wd_flag"
-        kill -TERM "$self" 2>/dev/null
-        pkill -TERM -P "$self" 2>/dev/null
-    ) &
+    [[ "$limit_sec" =~ ^[1-9][0-9]*$ ]] || die "CHARGEHAND_LANE_WATCHDOG_SEC must be a whole number of seconds, at least 1"
+    # The controller's pid, taken here: in `watchdog "$BASHPID" &` it would expand inside the
+    # background subshell, and the watchdog would signal itself.
+    local controller=$BASHPID
+    WD_FIRED="$work_dir/.watchdog-$controller.fired" WD_DONE="$work_dir/.watchdog-$controller.done"
+    rm -f "$WD_FIRED" "$WD_DONE"
+    watchdog "$controller" "$limit_sec" "${grace_sec%.*}" &
     WATCHDOG_PID=$!
 
     # 2. Whatever a killed verify left behind. Only the lane uses the runtime on this machine, so

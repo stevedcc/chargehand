@@ -347,8 +347,26 @@ test_a_hung_runtime_call_is_ended_by_the_overall_limit() {
     assert_eq "exit (could not run)" "$RC" "1"
     assert_contains "message" "$OUT" "exceeded its overall limit of 2 s"
     assert_eq "ends promptly" "$(( SECONDS - t0 < 15 ))" "1"
+    assert_contains "the hung run had started" "$(rt_log)" "--name chv-$SHA7-restore"
     assert_contains "runner removed" "$(rt_log)" "podman rm -f chv-$SHA7-restore"
     assert_contains "network removed" "$(rt_log)" "podman network rm chv-$SHA7"
+    assert_eq "no watchdog flag left" "$(ls -A "$HOME/lane/work" | grep -c '^\.watchdog' || true)" "0"
+}
+test_a_normal_verify_is_untouched_by_the_watchdog() {
+    # MiMo review of the watchdog: a finished run must keep its verdict, and nothing of the
+    # watchdog may outlive the controller (a leftover sleep holds the requester's SSH session).
+    lane_setup
+    CHARGEHAND_LANE_WATCHDOG_SEC=4321 verify
+    assert_eq "exit" "$RC" "0"
+    assert_not_contains "no watchdog message" "$OUT" "overall limit"
+    assert_eq "no watchdog sleep left" "$(pgrep -fx 'sleep 4321' | wc -l)" "0"
+    assert_eq "no watchdog files left" "$(ls -A "$HOME/lane/work" | grep -c '^\.watchdog' || true)" "0"
+}
+test_watchdog_limit_must_be_at_least_a_second() {
+    lane_setup
+    CHARGEHAND_LANE_WATCHDOG_SEC=0 verify
+    assert_eq "exit" "$RC" "2"
+    assert_contains "message" "$OUT" "CHARGEHAND_LANE_WATCHDOG_SEC"
 }
 test_suites_deadline_counts_every_test() {
     lane_setup '.verify_timeout_min = 0.02'
