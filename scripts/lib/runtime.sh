@@ -148,7 +148,14 @@ rt_image_digest() {
     local out digest
     if [ "$bin" = container ]; then out="$("$bin" image inspect "$1")" || return $?
     else out="$("$bin" image inspect --format '{{json .RepoDigests}}' "$1")" || return $?; fi
-    digest="$(grep -o 'sha256:[0-9a-f]\{64\}' <<<"$out" | head -n 1)"
+    # The digest the image was pinned by (IMAGE@sha256:...) when the runtime lists it: a
+    # multi-platform image also has its platform manifest's digest, which may come first.
+    local pinned="${1##*@}"
+    if [[ "$1" == *@sha256:* ]] && grep -qx "$pinned" <(grep -o 'sha256:[0-9a-f]\{64\}' <<<"$out"); then
+        digest="$pinned"
+    else
+        digest="$(grep -o 'sha256:[0-9a-f]\{64\}' <<<"$out" | head -n 1)"
+    fi
     [ -n "$digest" ] || return 1
     printf '%s\n' "$digest"
 }
