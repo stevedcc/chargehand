@@ -154,6 +154,19 @@ anything its user can, inside the sandbox.
   its own user.
 - It doesn't make a test honest: see "The agent can't choose what runs or where" above.
 
+### Container lanes
+
+A verify can also run on a separate machine in an untrusted container (`agent-sync.sh verify --lane
+<name>`, set up with `setup-lane.sh` as the lane's own user, no sudo). The runner has no
+credentials and no runtime socket, runs as non-root UID 1000, and has outbound network only
+while restoring packages; build and tests run on a private internal network with the project's
+service containers. Images are pinned by digest and only pushed digests count. A project needs an
+external database via an environment variable instead of Testcontainers, and test categories
+that need the runtime itself do not run on a lane. See the `setting-up-agent-sandbox` and
+`verifying-and-accepting` skills.
+
+The Docker path is fake-tested only (no real Docker run yet); on Docker the runner's HOME is unwritable when the host UID is not 1000, because the runner runs as the host user there.
+
 ## Models and cost
 
 `models.json` names your subscriptions and assigns models to four roles: implementer, task

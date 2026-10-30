@@ -179,4 +179,81 @@ test_verify_announces_the_start_while_the_verify_still_runs() {
     assert_eq "the launcher had not exited yet" "$([ -e "$TEST_TMP/exited" ] && echo exited || echo running)" "running"
     touch "$TEST_TMP/release"; wait "$pid"; assert_eq "then passes" "$?" "0"
 }
+
+# Task 5: verify --lane pushes the SHA to a lane over SSH and runs the lane's controller there.
+# The fake ssh logs its argv; git's own receive-pack call (git push over ssh) runs locally.
+fake_lane() {   # $1 = exit code, $2 = output line to print after "Verifying"
+    [ -d "$TEST_TMP/owner" ] || repos
+    L="$TEST_TMP/lane"; mkdir -p "$L" "$TEST_TMP/bin"; [ -d "$L/demo.git" ] || g init -q --bare "$L/demo.git"
+    write_config '{}'
+    printf '{"box": {"ssh": "box", "repos_dir": "%s"}}' "$L" > "$HARNESS_CONFIG_DIR/lanes.json"
+    cat > "$TEST_TMP/bin/ssh" <<EOS
+#!/bin/bash
+printf '%s\n' "\$*" >> "$TEST_TMP/ssh.log"
+last="\${!#}"
+case "\$last" in git-receive-pack*|git-upload-pack*) printf 'banner \\033]0;owned\\007\\033[2Jpush\\n' >&2; exec sh -c "\$last" ;; esac
+echo "Verifying abc1234 x"
+printf '%b\n' '$2'
+exit $1
+EOS
+    chmod +x "$TEST_TMP/bin/ssh"
+}
+test_lane_verify_pushes_then_calls_the_controller() {
+    fake_lane 0 'Passed!  - Failed: 0, Passed: 1'
+    sha="$(g -C "$W" rev-parse main)"
+    out="$(PATH="$TEST_TMP/bin:$PATH" sync verify --lane box main 2>&1)"; rc=$?
+    assert_eq "passes" "$rc" "0"
+    assert_eq "the SHA reached the lane's repo" "$(g -C "$L/demo.git" rev-parse --verify "refs/verify/$sha")" "$sha"
+    assert_eq "verify call is exactly BatchMode, keepalive, --, destination, controller command" "$(grep -F chargehand-lane "$TEST_TMP/ssh.log")" "-o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=4 -- box .local/bin/chargehand-lane verify --project demo $sha"
+    assert_contains "the push is non-interactive too" "$(grep -F git-receive-pack "$TEST_TMP/ssh.log")" "-o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=4"
+    assert_contains "announces the start" "$out" "verify of ${sha:0:7} started"
+    assert_contains "streams the output" "$out" "Passed!  - Failed: 0, Passed: 1"
+    assert_eq "record is sha plus lane" "$(cat "$HARNESS_STATE_DIR/demo/verified/main")" "$sha lane=box"
+}
+test_lane_push_output_is_agent_text() {
+    fake_lane 0 ok
+    out="$(PATH="$TEST_TMP/bin:$PATH" sync verify --lane box main 2>&1)"
+    assert_eq "no ESC from the push reaches the output" "$(printf '%s' "$out" | grep -c $'\033' || true)" "0"
+    assert_contains "push text survives" "$out" "banner"
+}
+test_lane_verify_strips_control_characters() {
+    fake_lane 0 'bad \033]0;owned\007text \033[2Jgone'
+    out="$(PATH="$TEST_TMP/bin:$PATH" sync verify --lane box main 2>&1 || true)"
+    assert_eq "no ESC reaches stdout" "$(printf '%s' "$out" | grep -c $'\033' || true)" "0"
+    assert_contains "text survives" "$out" "bad text gone"
+}
+test_unknown_lane_dies() {
+    fake_lane 0 ok
+    out="$(PATH="$TEST_TMP/bin:$PATH" sync verify --lane nope main 2>&1)"; rc=$?
+    assert_eq "usage/config exit" "$rc" "2"
+    assert_contains "names the lane" "$out" 'no lane "nope" in lanes.json'
+}
+test_lane_verify_exit_codes_and_wait() {
+    fake_lane 4 ""
+    out="$(PATH="$TEST_TMP/bin:$PATH" sync verify --lane box main 2>&1)"; rc=$?
+    assert_eq "runtime unavailable" "$rc" "4"
+    assert_contains "says the lane's runtime" "$out" "the lane's container runtime is unavailable"
+    fake_lane 10 ""
+    PATH="$TEST_TMP/bin:$PATH" sync verify --wait --lane box main >/dev/null 2>&1; assert_eq "failure is final" "$?" "10"
+}
+test_lane_exit_3_and_unreachable_messages_are_lane_specific() {
+    fake_lane 3 ""
+    out="$(PATH="$TEST_TMP/bin:$PATH" sync verify --lane box main 2>&1)"; rc=$?
+    assert_eq "busy exit" "$rc" "3"
+    assert_contains "busy message" "$out" "verify not run: another verify is running on lane box"
+    for c in 255 127; do
+        fake_lane $c ""
+        out="$(PATH="$TEST_TMP/bin:$PATH" sync verify --lane box main 2>&1)"; rc=$?
+        assert_eq "exit $c kept" "$rc" "$c"
+        assert_contains "unreachable message $c" "$out" "could not reach or run the lane controller on box (ssh exit $c)"
+    done
+}
+test_accept_reads_a_lane_record() {
+    fake_lane 0 'ok'
+    g -C "$C" checkout -q -b brief/x; g -C "$C" commit -q --allow-empty -m "agent work"
+    sync fetch >/dev/null; PATH="$TEST_TMP/bin:$PATH" sync verify --lane box agent/brief/x >/dev/null 2>&1
+    sync accept brief/x >/dev/null 2>&1; assert_eq "accepted" "$?" "0"
+    assert_eq "owner branch moved" "$(g -C "$W" log -1 --format=%s main)" "agent work"
+}
+
 run_tests

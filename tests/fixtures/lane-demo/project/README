@@ -1,0 +1,3 @@
+The demo project the real-runtime lane tests (tests/test_lane_real.sh) verify: each "suite" is a
+shell script under tests/ that prints one summary line, "Passed!" or "Failed!".
+conf/greeting.txt is a file a service gets from the commit (a service's "files" in lane.json).
