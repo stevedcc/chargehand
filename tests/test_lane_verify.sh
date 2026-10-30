@@ -6,7 +6,9 @@ D0=0000000000000000000000000000000000000000000000000000000000000000
 # with one commit that sits only under refs/verify/ (as the requester pushes it), and the fake
 # runtime behind a wrapper: `wait` on the suites runner prints $SUITES_RC (default 0), and the
 # suites `run` copies its /recipe mount to $TEST_TMP/recipe-copy before the run dir is removed
-# and writes $SUITES_TXT (default: two clean suites) to suites.txt in its /out mount.
+# and writes $SUITES_TXT (default: two clean suites) to suites.txt in its /out mount. $SEED, when
+# set, runs in the seed repo before its commit (files for the commit); the `run` of service db
+# copies each of its mounts to $TEST_TMP/db-mounts/<container path with / as _>.
 lane_setup() {
     jq -n --arg d "$D0" '{
         runtime: "podman", cpus: 3, memory: "6g",
@@ -25,6 +27,7 @@ lane_setup() {
         | jq "${1:-.}" > "$HARNESS_CONFIG_DIR/lane.json"
     local seed="$TEST_TMP/seed" repo="$HOME/lane/repos/demo.git"
     git init -q "$seed"
+    [ -z "${SEED:-}" ] || ( cd "$seed" && eval "$SEED" ) && git -C "$seed" add -A
     git -C "$seed" -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m "demo subject"
     SHA="$(git -C "$seed" rev-parse HEAD)"; SHA7="${SHA:0:7}"
     git init -q --bare "$repo"
@@ -40,8 +43,17 @@ if [ "$1" = run ] && [[ " $* " == *" --name chv-"*"-suites "* ]]; then
         prev="$a"
     done
 fi
+if [ "$1" = run ] && [[ " $* " == *" --name db "* ]]; then
+    prev=; for a in "$@"; do
+        if [ "$prev" = -v ]; then t="${a#*:}"; t="${t%%:*}"; mkdir -p "$TEST_TMP/db-mounts"; cp -P "${a%%:*}" "$TEST_TMP/db-mounts/${t//\//_}"; fi
+        prev="$a"
+    done
+fi
 if [ "$1" = wait ] && [ -n "${FAKE_WAIT_BLOCK:-}" ] && [[ "$2" == chv-*-"$FAKE_WAIT_BLOCK" ]]; then
     echo "podman $*" >> "$TEST_TMP/rt.log"; exec sleep 60   # a runner that never stops
+fi
+if [ "$1" = run ] && [ -n "${FAKE_RUN_BLOCK:-}" ] && [[ " $* " == *" --name chv-"*"-$FAKE_RUN_BLOCK "* ]]; then
+    echo "podman $*" >> "$TEST_TMP/rt.log"; exec sleep 60   # a runtime call that hangs (e.g. a wedged pull)
 fi
 if [ "$1" = logs ] && [ -n "${FAKE_LOGS_BLOCK:-}" ]; then
     echo "podman $*" >> "$TEST_TMP/rt.log"; echo "${FAKE_RT_OUT_logs:-}"; exec sleep 60   # a stream that never ends
@@ -326,6 +338,37 @@ test_restore_that_never_ends_times_out() {
     assert_eq "run dir removed last" "$(rt_log | tail -1)" "podman unshare rm -rf $HOME/lane/work/run-$SHA7"
     assert_eq "run dir removed" "$([ -e "$HOME/lane/work/run-$SHA7" ] && echo there || echo gone)" "gone"
 }
+test_a_hung_runtime_call_is_ended_by_the_overall_limit() {
+    # GLM review of #23/#24: only rt_wait had a deadline; a hung pull or exec held the machine lock
+    # and the ssh session forever.
+    lane_setup
+    local t0=$SECONDS
+    CHARGEHAND_LANE_WATCHDOG_SEC=2 FAKE_RUN_BLOCK=restore verify
+    assert_eq "exit (could not run)" "$RC" "1"
+    assert_contains "message" "$OUT" "exceeded its overall limit of 2 s"
+    assert_eq "ends promptly" "$(( SECONDS - t0 < 15 ))" "1"
+    assert_contains "the hung run had started" "$(rt_log)" "--name chv-$SHA7-restore"
+    assert_contains "runner removed" "$(rt_log)" "podman rm -f chv-$SHA7-restore"
+    assert_contains "network removed" "$(rt_log)" "podman network rm chv-$SHA7"
+    assert_eq "no watchdog flag left" "$(ls -A "$HOME/lane/work" >/dev/null && { ls -A "$HOME/lane/work" | grep -c '^\.watchdog' || true; })" "0"
+}
+test_a_normal_verify_is_untouched_by_the_watchdog() {
+    # MiMo review of the watchdog: a finished run must keep its verdict, and nothing of the
+    # watchdog may outlive the controller (a leftover sleep holds the requester's SSH session).
+    lane_setup
+    CHARGEHAND_LANE_WATCHDOG_SEC=4321 verify
+    assert_eq "exit" "$RC" "0"
+    assert_not_contains "no watchdog message" "$OUT" "overall limit"
+    command -v pgrep >/dev/null || fail "pgrep missing"
+    assert_eq "no watchdog sleep left" "$(pgrep -fx 'sleep 4321' | wc -l)" "0"
+    assert_eq "no watchdog files left" "$(ls -A "$HOME/lane/work" >/dev/null && { ls -A "$HOME/lane/work" | grep -c '^\.watchdog' || true; })" "0"
+}
+test_watchdog_limit_must_be_at_least_a_second() {
+    lane_setup
+    CHARGEHAND_LANE_WATCHDOG_SEC=0 verify
+    assert_eq "exit" "$RC" "2"
+    assert_contains "message" "$OUT" "CHARGEHAND_LANE_WATCHDOG_SEC"
+}
 test_suites_deadline_counts_every_test() {
     lane_setup '.verify_timeout_min = 0.02'
     CHARGEHAND_LANE_GRACE_SEC=0 FAKE_WAIT_BLOCK=suites verify
@@ -352,4 +395,68 @@ test_stream_that_never_ends_is_stopped_after_the_drain() {
     assert_eq "ends promptly" "$(( SECONDS - t0 < 10 ))" "1"
 }
 
+test_service_files_come_from_the_commit_read_only() {
+    SEED='mkdir dev && printf "<html>login</html>\n" > dev/login.html && printf "{}\n" > dev/idp.json' \
+        lane_setup '.projects.demo.services[0].files = {"/app/login.html": "dev/login.html", "/app/config.json": "dev/idp.json"}'
+    verify
+    assert_eq "exit" "$RC" "0"
+    local run; run="$(grep -- '^podman run .* --name db ' "$TEST_TMP/rt.log")"
+    assert_contains "login mounted read-only" "$run" "-v $HOME/lane/work/run-$SHA7/files/db/0:/app/login.html:ro,Z"
+    assert_contains "config mounted read-only" "$run" "-v $HOME/lane/work/run-$SHA7/files/db/1:/app/config.json:ro,Z"
+    assert_eq "login content" "$(cat "$TEST_TMP/db-mounts/_app_login.html")" "<html>login</html>"
+    assert_eq "config content" "$(cat "$TEST_TMP/db-mounts/_app_config.json")" "{}"
+}
+test_service_file_missing_from_the_commit_fails() {
+    lane_setup '.projects.demo.services[0].files = {"/app/login.html": "dev/login.html"}'
+    verify
+    assert_eq "exit" "$RC" "10"
+    assert_contains "message" "$OUT" "service db: dev/login.html is not a regular file in $SHA7"
+    assert_not_contains "service not started" "$(rt_log)" "--name db "
+    assert_eq "run dir removed last" "$(rt_log | tail -1)" "podman unshare rm -rf $HOME/lane/work/run-$SHA7"
+}
+test_service_file_that_is_a_symlink_is_refused() {
+    # A commit could point the file at the lane user's own files; git's tree says it is a link.
+    SEED='mkdir dev && ln -s "$HOME/.ssh/id_ed25519" dev/login.html' \
+        lane_setup '.projects.demo.services[0].files = {"/app/login.html": "dev/login.html"}'
+    mkdir -p "$HOME/.ssh"; echo "PRIVATE KEY" > "$HOME/.ssh/id_ed25519"
+    verify
+    assert_eq "exit" "$RC" "10"
+    assert_contains "message" "$OUT" "service db: dev/login.html is not a regular file in $SHA7"
+    assert_not_contains "service not started" "$(rt_log)" "--name db "
+}
+test_service_file_under_a_symlinked_folder_is_refused() {
+    # The folder, not the file, is the link: a check of the file alone in the checkout would pass.
+    SEED='mkdir -p "$HOME/.ssh" && echo "PRIVATE KEY" > "$HOME/.ssh/login.html" && ln -s "$HOME/.ssh" dev' \
+        lane_setup '.projects.demo.services[0].files = {"/app/login.html": "dev/login.html"}'
+    verify
+    assert_eq "exit" "$RC" "10"
+    assert_contains "message" "$OUT" "service db: dev/login.html is not a regular file in $SHA7"
+    assert_not_contains "service not started" "$(rt_log)" "--name db "
+}
+test_service_file_that_is_executable_is_accepted() {
+    SEED='mkdir dev && printf "#!/bin/sh\n" > dev/start.sh && chmod +x dev/start.sh' \
+        lane_setup '.projects.demo.services[0].files = {"/app/start.sh": "dev/start.sh"}'
+    verify
+    assert_eq "exit" "$RC" "0"
+    assert_eq "content" "$(cat "$TEST_TMP/db-mounts/_app_start.sh")" "#!/bin/sh"
+}
+test_service_file_git_failure_is_could_not_run() {
+    # A lane whose git cannot list the commit (too old for --format, a broken repo) must not blame the commit.
+    SEED='mkdir dev && echo x > dev/login.html' \
+        lane_setup '.projects.demo.services[0].files = {"/app/login.html": "dev/login.html"}'
+    local real_git; real_git="$(command -v git)"
+    printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = ls-tree ] && { echo "fatal: broken" >&2; exit 128; }; done\nexec %q "$@"\n' "$real_git" > "$TEST_TMP/bin/git"
+    chmod +x "$TEST_TMP/bin/git"
+    verify
+    assert_eq "exit" "$RC" "1"
+    assert_contains "message" "$OUT" "could not list dev/login.html in $SHA7 for service db"
+    assert_not_contains "not blamed on the commit" "$OUT" "is not a regular file"
+}
+test_service_file_that_is_a_directory_is_refused() {
+    SEED='mkdir -p dev/login.html && touch dev/login.html/x' \
+        lane_setup '.projects.demo.services[0].files = {"/app/login.html": "dev/login.html"}'
+    verify
+    assert_eq "exit" "$RC" "10"
+    assert_contains "message" "$OUT" "service db: dev/login.html is not a regular file in $SHA7"
+}
 run_tests

@@ -102,6 +102,16 @@ test_real_service_reachable() {
     assert_contains "service digest" "$OUT" "db=$DEMO_DIGEST"
     assert_clean
 }
+test_real_service_file_from_the_commit() {
+    # The service is ready only once it reads the commit's file through a read-only mount (the
+    # demo image runs as UID 1000, so a failed write would prove nothing: the mount is checked).
+    real_setup "$DB_SERVICE"' | .projects.demo.services[0].files = {"/srv/greeting.txt": "conf/greeting.txt"}
+        | .projects.demo.services[0].ready = ["sh", "-c", "grep -q \"hello from the commit\" /srv/greeting.txt && grep -q \" /srv/greeting.txt [^ ]* ro[, ]\" /proc/mounts"]
+        | .projects.demo.services[0].ready_timeout_sec = 15'; verify
+    assert_eq "exit" "$RC" "0"
+    assert_not_contains "service got ready" "$OUT" "not ready"
+    assert_clean
+}
 test_real_no_leftovers() {
     real_setup "$DB_SERVICE | .projects.demo.tests = [\"bash tests/pass.sh\", \"bash tests/fail.sh\"]"; verify
     assert_eq "a failing suite exits 10" "$RC" "10"

@@ -87,6 +87,16 @@ test_digest_is_parsed_from_repo_digests() {
     assert_eq "digest" "$(CHARGEHAND_RUNTIME=podman FAKE_RT_OUT_image="[\"docker.io/library/img@sha256:$D64\"]" rt_image_digest x)" "sha256:$D64"
     assert_contains "uses image inspect" "$(rt_log)" "podman image inspect --format {{json .RepoDigests}} x"
 }
+test_digest_prefers_the_pinned_one() {
+    # A multi-platform image has two repo digests (the index and the platform manifest); the one
+    # the image was pinned by is the one the record must show (router lane, 2026-10-30).
+    fake_rt
+    local E64=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+    assert_eq "pinned digest" "$(CHARGEHAND_RUNTIME=podman FAKE_RT_OUT_image="[\"r/img@sha256:$D64\",\"r/img@sha256:$E64\"]" rt_image_digest "r/img@sha256:$E64")" "sha256:$E64"
+    assert_eq "pin not listed: the first" "$(CHARGEHAND_RUNTIME=podman FAKE_RT_OUT_image="[\"r/img@sha256:$D64\"]" rt_image_digest "r/img@sha256:$E64")" "sha256:$D64"
+    assert_eq "a pattern is not a pin" "$(CHARGEHAND_RUNTIME=podman FAKE_RT_OUT_image="[\"r/img@sha256:$D64\"]" rt_image_digest "r/img@sha256:.*")" "sha256:$D64"
+    assert_eq "unpinned: the first" "$(CHARGEHAND_RUNTIME=podman FAKE_RT_OUT_image="[\"r/img@sha256:$D64\",\"r/img@sha256:$E64\"]" rt_image_digest "r/img:tag")" "sha256:$D64"
+}
 test_digest_fails_without_a_repo_digest() {
     fake_rt
     local out rc

@@ -36,6 +36,8 @@ lane_check() {
     msg="$(jq -r --arg re "$LANE_DIGEST_RE" '
         def str: type == "string" and length > 0;
         def pinned: str and test($re);
+        def safepath: test("^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$") and (contains("\n") | not)   # $ matches before a final newline
+                      and all(split("/")[]; . != "." and . != "..");
         def problems:
           (if (.runtime | IN("docker", "podman", "container")) then empty
            else "runtime must be docker, podman or container" end),
@@ -70,7 +72,14 @@ lane_check() {
                         (if (.ready // [] | type == "array" and all(.[]; type == "string")) then empty
                          else "\($p): ready of service \($n) must be a list of strings" end),
                         (if (.ready_timeout_sec // 60 | type == "number" and . > 0) then empty
-                         else "\($p): ready_timeout_sec of service \($n) must be a positive number" end))));
+                         else "\($p): ready_timeout_sec of service \($n) must be a positive number" end),
+                        (if (.files // {} | type == "object" and all(.[]; type == "string")) then
+                           (.files // {} | to_entries[]
+                            | (if (.key | startswith("/") and (.[1:] | safepath)) then empty
+                               else "\($p): file target \(.key) of service \($n) must be an absolute path (letters, digits, . _ - /) without .." end),
+                              (if (.value | safepath) then empty
+                               else "\($p): file source \(.value) of service \($n) must be a path in the repo (letters, digits, . _ - /) without .." end))
+                         else "\($p): files of service \($n) must be an object of strings" end))));
         [problems] | first // empty' "$file")" || die "$file: could not be checked"
     [ -z "$msg" ] || die "$msg"
 }
