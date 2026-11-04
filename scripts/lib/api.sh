@@ -8,15 +8,54 @@
 # Wrapper calls queue on one lock; HARNESS_API_LOCK_WAIT (seconds, default 120) bounds the wait and
 # a timeout returns 75 (watch.sh sets it below its poll interval).
 oc_api() {
-    local method="$1" path="$2" body="${3:-}" url user form kind pw
+    local method="$1" path="$2" body="${3:-}" url user kind pw
     url="$(config_get server_url http://127.0.0.1:4096)$path" || return 2
     user="$(config_get server_user opencode)" || return 2
     local args=(-sS -f --max-time 30 -X "$method" -H 'Content-Type: application/json')
     [ -n "$body" ] && args+=(--data-binary "@$body")
+    kind="$(server_password_form)" || exit 2
+    if [ "$kind" = wrapper ]; then
+        local wrap tok; mapfile -t wrap < <(_server_password_json | jq -r '.wrapper[]'); tok="$(_server_password_json | jq -r .token)"
+        # TEMPORARY workaround for tswap (stevedcc/TokenSwap#173): overlapping unlocks make
+        # `ykman list` return no serials ("No YubiKey detected"), so callers queue on a lock.
+        # Remove once tswap serialises its own ykman calls.
+        mkdir -p "$HARNESS_STATE_DIR"
+        ( flock -w "${HARNESS_API_LOCK_WAIT:-120}" 9 || { echo "chargehand: timed out waiting for the API lock" >&2; exit 75; }
+          "${wrap[@]}" curl "${args[@]}" -u "$user:$tok" "$url" ) 9>"$HARNESS_STATE_DIR/api.lock"
+        return
+    fi
+    # The "x" keeps a value's own trailing newlines, which $(...) would strip (an env value keeps them).
+    pw="$(server_password_value && printf x)" || exit 2; pw="${pw%x}"
+    pw="${pw//\\/\\\\}"; pw="${pw//\"/\\\"}"
+    printf 'user = "%s:%s"\n' "$user" "$pw" | curl -K - "${args[@]}" "$url"
+}
+
+# _server_password_json: config.json's "server_password" object, compact; dies when it is missing.
+_server_password_json() {
+    local form
     form="$(jq -c '.server_password // empty' "$HARNESS_CONFIG_DIR/config.json" 2>/dev/null)"
     [ -n "$form" ] || die "config.json: missing key \"server_password\""
+    printf '%s\n' "$form"
+}
+
+# server_password_form: which form "server_password" uses: env, file, command or wrapper (wrapper
+# wins when an object names several). Dies on anything else.
+server_password_form() {
+    local form kind
+    form="$(_server_password_json)" || exit 2
     kind="$(jq -r 'if has("wrapper") then "wrapper" elif has("env") then "env"
                    elif has("file") then "file" elif has("command") then "command" else "" end' <<<"$form")"
+    [ -n "$kind" ] || die "server_password: use one of env, file, command, wrapper"
+    printf '%s\n' "$kind"
+}
+
+# server_password_value: the password itself on stdout (no newline added), for the env, file and command forms. Callers
+# capture it into a variable and hand it on without a command line (curl's stdin, an environment
+# variable). The wrapper form never yields the value to Chargehand, so it dies here.
+server_password_value() {
+    local form kind pw
+    kind="$(server_password_form)" || exit 2
+    form="$(_server_password_json)" || exit 2
     case "$kind" in
         env)
             local name; name="$(jq -r .env <<<"$form")"
@@ -29,19 +68,17 @@ oc_api() {
         command)
             local cmd; mapfile -t cmd < <(jq -r '.command[]' <<<"$form")
             pw="$("${cmd[@]}")" || die "server_password: the command failed" ;;
-        wrapper)
-            local wrap tok; mapfile -t wrap < <(jq -r '.wrapper[]' <<<"$form"); tok="$(jq -r .token <<<"$form")"
-            # TEMPORARY workaround for tswap (stevedcc/TokenSwap#173): overlapping unlocks make
-            # `ykman list` return no serials ("No YubiKey detected"), so callers queue on a lock.
-            # Remove once tswap serialises its own ykman calls.
-            mkdir -p "$HARNESS_STATE_DIR"
-            ( flock -w "${HARNESS_API_LOCK_WAIT:-120}" 9 || { echo "chargehand: timed out waiting for the API lock" >&2; exit 75; }
-              "${wrap[@]}" curl "${args[@]}" -u "$user:$tok" "$url" ) 9>"$HARNESS_STATE_DIR/api.lock"
-            return ;;
-        *) die "server_password: use one of env, file, command, wrapper" ;;
+        wrapper) die "server_password: the wrapper form has no value to read (the wrapper substitutes it into a command)" ;;
     esac
-    pw="${pw//\\/\\\\}"; pw="${pw//\"/\\\"}"
-    printf 'user = "%s:%s"\n' "$user" "$pw" | curl -K - "${args[@]}" "$url"
+    printf '%s' "$pw"
+}
+
+# oc_answers: whether server_url answers HTTP at all (any status, a 401 included); sends no
+# credentials. Used to tell "not running" from "running".
+oc_answers() {
+    local url; url="$(config_get server_url http://127.0.0.1:4096)" || return 2
+    curl -s -o /dev/null --max-time 5 "$url" && return 0
+    return 1
 }
 
 # oc_launch DIR: create the session from DIR/session-request.json, send DIR/launch.txt to it, and
