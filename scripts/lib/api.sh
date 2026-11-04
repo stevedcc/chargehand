@@ -114,8 +114,25 @@ oc_sessions() {
     return "$rc"
 }
 
+# oc_busy_session_ids [PROVIDER]: the ids of the busy sessions, one per line: updated in the last
+# MODELS_BUSY_WINDOW_MIN minutes (20; a working session updates constantly), no "idle" message since
+# its last prompt (the test watch.sh uses), and its newest reply not an error (a session that died on
+# a 402 or a quota error holds no capacity). PROVIDER limits it to that provider's sessions; without
+# it every session counts. A session list that cannot be read gives no ids.
+oc_busy_session_ids() {
+    local provider="${1:-}" since s
+    since=$(( ($(date +%s) - ${MODELS_BUSY_WINDOW_MIN:-20} * 60) * 1000 ))
+    while read -r s; do
+        [ -n "$s" ] || continue
+        oc_api GET "/api/session/$s/message" 2>/dev/null | oc_newest_first | jq -e '.data | (map(.type) | index("user")) as $u
+            | .[0:$u] | (map(select(.type == "idle")) | length == 0)
+              and ((map(select(.type == "assistant")) | first // {} | .error) == null)' >/dev/null && echo "$s"
+    done < <(oc_sessions | jq -r --arg p "$provider" --argjson t "$since" \
+        '.data[]? | select(($p == "" or .model.providerID == $p) and (.time.updated // 0) >= $t) | .id')
+}
+
 # oc_newest_first: filter a message-list response ({data: [...]}) to newest-first by time.created
-# (stable: messages without a time keep their order). The watcher and models_busy read ".data[0]"
+# (stable: messages without a time keep their order). The watcher and oc_busy_session_ids read ".data[0]"
 # and "everything before the last prompt" and so must not depend on the order the server answers in
 # (not verified against a real server).
 oc_newest_first() {

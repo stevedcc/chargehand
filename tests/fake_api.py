@@ -6,7 +6,8 @@ Serves <dir>/fixtures/<METHOD><path>.json (query strings ignored). A numbered se
 Every request is appended to <dir>/requests.jsonl as {method, path, query, auth, body}.
 Requests without HTTP Basic "opencode:$FAKE_API_PASSWORD" get 401; unknown paths get 404.
 If <dir>/delay holds a number of seconds, every answer waits that long first.
-Writes the port it listens on to <dir>/port.  Usage: fake_api.py <dir>
+Writes the port it listens on to <dir>/port; FAKE_API_PORT picks it (a server "coming back").
+Usage: fake_api.py <dir>
 """
 import base64, json, os, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -65,7 +66,7 @@ class Handler(BaseHTTPRequestHandler):
         self.handle_any("POST")
 
 
-server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+server = ThreadingHTTPServer(("127.0.0.1", int(os.environ.get("FAKE_API_PORT", "0"))), Handler)
 with open(os.path.join(ROOT, "port"), "w") as f:
     f.write(str(server.server_address[1]))
 server.serve_forever()
