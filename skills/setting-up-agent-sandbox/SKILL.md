@@ -43,10 +43,22 @@ owner repo <--fetch-- agent clone   (git fetch with upload-pack only: no hooks, 
    (setup prints the commands).
 4. Proof: `sudo -n -u <agent> /usr/local/bin/chargehand-sandbox --selftest --project <name>`
    must print only `ok` lines. Read every line; a `FAIL` is a broken boundary, not noise.
-5. The owner starts the server with `OPENCODE_SERVER_PASSWORD` set, however they keep secrets.
+5. The owner starts the server in a terminal they keep open:
+   `bash <plugin>/skills/setting-up-agent-sandbox/scripts/start-server.sh`. It reads the
+   password from `config.json`'s `server_password` (any form, the wrapper too), passes it to the
+   launcher in its environment only, and inhibits suspend while the server runs. Exit 1 means a
+   server already answers at `server_url`.
 
 **Re-run step 2 and 4 after any change** (the launcher's verify exit codes, lock and timeout, and `verify_timeout_min` in a project's config, only reach the agent after step 2) to `sandbox.sh`, `implementer/` or a project config:
 agents only see the root-owned installed copies.
+
+## Updating OpenCode
+The owner runs `bash <plugin>/skills/setting-up-agent-sandbox/scripts/update-opencode.sh --project <name>`
+(it asks for their sudo password for the upgrade; give it ready to paste, never run it yourself).
+It refuses while sessions are busy (`--force` only with the owner's yes: their work stops), upgrades,
+self-tests (any non-`ok` line stops it before the server is touched), stops the server, waits
+for `start-server.sh` to be run again, and prints the model allocation. Read the self-test lines
+and the allocation as in steps 4 and 1.
 
 ## Container lane
 A lane is a machine (or a dedicated user on one) that verifies commits in an untrusted runner

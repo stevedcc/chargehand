@@ -241,16 +241,32 @@ Once per machine; steps 4 and 5 again for each further project.
    sudo -n -u <agent> /usr/local/bin/chargehand-sandbox --selftest --project <name>
    ```
    Every line must say `ok`. A `FAIL` is a hole in the sandbox, not noise.
-7. **Start the OpenCode server** in the sandbox, with its password from wherever you keep secrets:
+7. **Start the OpenCode server** in the sandbox, in a terminal you keep open:
    ```
-   OPENCODE_SERVER_PASSWORD="$(secret-tool lookup service opencode)" sudo -n -u <agent> /usr/local/bin/chargehand-sandbox
+   bash <plugin>/skills/setting-up-agent-sandbox/scripts/start-server.sh
    ```
+   It takes the password from `config.json`'s `server_password`, in any of its forms (a secret
+   manager's wrapper too, e.g. `tswap run`), hands it to the launcher in its environment only,
+   and keeps the machine from suspending while the server runs (`gnome-session-inhibit`, else
+   `systemd-inhibit`; `--no-inhibit` skips that). Ctrl-C stops the server.
 8. **Run a brief.** Ask Claude to write one (`writing-briefs`) and run it (`running-briefs`); it
    launches, watches, answers, verifies (`verifying-and-accepting`) and writes the retro
    (`writing-retros`).
 
 Re-run step 4 (and 6) after changing a project's config, `implementer/` or the launcher: agents
 only ever see the root-owned installed copies.
+
+## Updating OpenCode
+
+```
+bash <plugin>/skills/setting-up-agent-sandbox/scripts/update-opencode.sh --project <name>
+```
+
+It refuses while sessions are busy (`--force` goes on anyway), upgrades OpenCode as the agent
+user (`sudo -iu`, so it asks for your password), runs the sandbox self-test and stops on any line
+that is not `ok` before the server is touched, stops the server that `start-server.sh` started
+(or asks you to press Ctrl-C in its terminal), waits for you to run `start-server.sh` again, and
+then prints the project's model allocation against the new server.
 
 ## Tests
 

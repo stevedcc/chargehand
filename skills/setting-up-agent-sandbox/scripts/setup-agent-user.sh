@@ -201,7 +201,8 @@ Then, from your own account:
 
   sudo -n -u $AGENT $LAUNCHER --selftest --project ${projects[0]}   # must print only "ok" lines
 
-and start the server with its password in OPENCODE_SERVER_PASSWORD, however you keep secrets, e.g.
+and start the server in a terminal you keep open (the password comes from config.json's
+server_password, in any of its forms):
 
-  OPENCODE_SERVER_PASSWORD="\$(secret-tool lookup service opencode)" sudo -n -u $AGENT $LAUNCHER
+  bash $HARNESS_ROOT/skills/setting-up-agent-sandbox/scripts/start-server.sh
 EOF
