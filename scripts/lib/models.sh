@@ -73,9 +73,10 @@ models_render() {
 }
 
 # models_busy PROVIDER: how many of PROVIDER's sessions are busy (oc_busy_session_ids's rules).
-# Needs api.sh.
+# Status 0 always: sessions whose activity cannot be read are not counted (a capacity hint; the
+# callers run under set -e and must not stop on it). Needs api.sh.
 models_busy() {
-    oc_busy_session_ids "$1" | awk 'END { print NR }'
+    { oc_busy_session_ids "$1" || true; } | awk 'END { print NR }'
 }
 
 # models_pick EFFECTIVE ROLE [--allow-paid]: the role's first live model whose provider is under its

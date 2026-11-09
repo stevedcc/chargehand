@@ -127,15 +127,19 @@ oc_sessions() {
 # it every session counts. Status 2 when the session list or a recent session's messages could not
 # be read: the ids printed are then incomplete (a caller that must not miss one treats that as busy).
 oc_busy_session_ids() {
-    local provider="${1:-}" since s list msgs rc=0
+    local provider="${1:-}" since s list msgs st rc=0
     since=$(( ($(date +%s) - ${MODELS_BUSY_WINDOW_MIN:-20} * 60) * 1000 ))
     list="$(oc_sessions)" || return 2
     while read -r s; do
         [ -n "$s" ] || continue
         msgs="$(oc_api GET "/api/session/$s/message" 2>/dev/null)" || { rc=2; continue; }
-        oc_newest_first <<<"$msgs" | jq -e '.data | (map(.type) | index("user")) as $u
+        # jq -e: 0 busy, 1 not busy; anything else (a body that is not a message list) is unknown.
+        # "|| st=$?" keeps a failure from ending a caller that runs under set -e.
+        st=0
+        oc_newest_first <<<"$msgs" 2>/dev/null | jq -e '.data | (map(.type) | index("user")) as $u
             | .[0:$u] | (map(select(.type == "idle")) | length == 0)
-              and ((map(select(.type == "assistant")) | first // {} | .error) == null)' >/dev/null && echo "$s"
+              and ((map(select(.type == "assistant")) | first // {} | .error) == null)' >/dev/null 2>&1 || st=$?
+        case $st in 0) echo "$s" ;; 1) ;; *) rc=2 ;; esac
     done < <(jq -r --arg p "$provider" --argjson t "$since" \
         '.data[]? | select(($p == "" or .model.providerID == $p) and (.time.updated // 0) >= $t) | .id' <<<"$list")
     return "$rc"

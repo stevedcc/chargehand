@@ -21,6 +21,23 @@ test_busy_session_ids() {
     assert_eq "one provider" "$(oc_busy_session_ids z | tr '\n' ' ')" "s1 "
     assert_eq "every provider" "$(oc_busy_session_ids | tr '\n' ' ')" "s1 s2 "
 }
+# A recent session whose messages come back unreadable (404, or 200 with a body that is not a
+# message list): status 2, its id not printed; models_busy still prints a count with status 0.
+test_busy_session_ids_unreadable_activity() {
+    start_api
+    . "$HARNESS_ROOT/scripts/lib/models.sh"
+    fixture GET /api/session "{\"data\": [$(session s1 z "$(now_ms)" a), $(session s2 z "$(now_ms)" b)]}"
+    fixture GET /api/session/s1/message "$busy_msgs"
+    out="$(oc_busy_session_ids)"; rc=$?
+    assert_eq "404: status 2" "$rc" "2"
+    assert_eq "404: the readable busy one" "$out" "s1"
+    fixture GET /api/session/s2/message '{"data": "x"}'
+    out="$(oc_busy_session_ids)"; rc=$?
+    assert_eq "unparseable body: status 2" "$rc" "2"
+    out="$(set -e; models_busy z)"; rc=$?
+    assert_eq "models_busy: status 0" "$rc" "0"
+    assert_eq "models_busy: the count it could read" "$out" "1"
+}
 
 # The update runs against the fake API with a stub sudo on PATH that answers each fixed form:
 # opencode --version and upgrade (as the agent user), the launcher's self-test, and the launcher
