@@ -41,7 +41,10 @@ setup_update() {
 echo "sudo $*" >> "$TEST_TMP/calls"
 case "$*" in
     "-iu agentx opencode --version") cat "$TEST_TMP/version" ;;
-    "-iu agentx opencode upgrade") [ -f "$TEST_TMP/version.new" ] && cp "$TEST_TMP/version.new" "$TEST_TMP/version"; echo "upgrading" ;;
+    "-iu agentx opencode upgrade") [ -f "$TEST_TMP/version.new" ] && cp "$TEST_TMP/version.new" "$TEST_TMP/version"
+        # Fixtures in after_upgrade/ replace the server's answers: what changed while it upgraded.
+        [ -d "$TEST_TMP/after_upgrade" ] && cp -r "$TEST_TMP/after_upgrade/." "$API_DIR/fixtures/"
+        echo "upgrading" ;;
     "-n -u agentx /opt/ch/launcher --selftest --project p") cat "$TEST_TMP/selftest"; exit "$(cat "$TEST_TMP/selftest.rc" 2>/dev/null || echo 0)" ;;
     "-n -u agentx /opt/ch/launcher")
         trap 'echo "sudo got SIGTERM" >> "$TEST_TMP/calls"; kill "$API_PID"; exit 143' TERM
@@ -54,7 +57,7 @@ SH
 while [[ "$1" == --* ]]; do [ "$1" = --reason ] && shift; shift; done; "$@"
 SH
     chmod +x "$TEST_TMP/bin/sudo" "$TEST_TMP/bin/gnome-session-inhibit"
-    export PATH="$TEST_TMP/bin:$PATH" TEST_TMP API_PID
+    export PATH="$TEST_TMP/bin:$PATH" TEST_TMP API_PID API_DIR
     echo "1.0.0" > "$TEST_TMP/version"
     printf 'ok   boundary one\nok   boundary two\n' > "$TEST_TMP/selftest"
 }
@@ -76,7 +79,12 @@ run_update() {
     ( CHARGEHAND_POLL_SCALE="$scale" bash "$UPDATE" --project p "$@" > "$TEST_TMP/out" 2>&1; echo $? > "$TEST_TMP/rc" ) &
     UPDATE_PID=$!
 }
-finish() { wait "$UPDATE_PID"; RC="$(cat "$TEST_TMP/rc")"; }
+# finish: wait for the update (30 s at most: a wait that never ends fails the test, not the suite).
+finish() {
+    local _; for _ in $(seq 600); do kill -0 "$UPDATE_PID" 2>/dev/null || break; sleep 0.05; done
+    if kill -0 "$UPDATE_PID" 2>/dev/null; then fail "the update was still running after 30 s"; pkill -P "$UPDATE_PID"; fi
+    wait "$UPDATE_PID"; RC="$(cat "$TEST_TMP/rc" 2>/dev/null)"
+}
 out() { cat "$TEST_TMP/out" 2>/dev/null; }
 # wait_out TEXT: until the update has printed TEXT (10 s at most).
 wait_out() { local _; for _ in $(seq 200); do grep -qF -- "$1" "$TEST_TMP/out" 2>/dev/null && return 0; sleep 0.05; done; return 1; }
@@ -104,6 +112,23 @@ test_busy_sessions_refuse_without_force() {
     assert_contains "lists the busy session" "$(out)" "ses_busy  Brief 19a"
     assert_contains "says how to go on" "$(out)" "--force"
     assert_eq "nothing run as the agent user" "$(calls)" ""
+}
+test_a_session_busy_by_the_stop_is_refused() {
+    setup_update; start_stub_server
+    # Nothing busy at first; a brief starts while OpenCode upgrades.
+    mkdir -p "$TEST_TMP/after_upgrade/GET/api/session/ses_new"
+    printf '%s\n' "{\"data\": [$(session ses_new go "$(now_ms)" "Brief 20a")]}" > "$TEST_TMP/after_upgrade/GET/api/session.json"
+    printf '%s\n' "$busy_msgs" > "$TEST_TMP/after_upgrade/GET/api/session/ses_new/message.json"
+    run_update 0.01; finish; rc="$RC"
+    assert_eq "exit 1" "$rc" "1"
+    assert_contains "lists the session" "$(out)" "ses_new  Brief 20a"
+    assert_contains "says where it stopped" "$(out)" "OpenCode is upgraded; the server was not touched."
+    assert_not_contains "server not signalled" "$(calls)" "SIGTERM"
+    oc_answers; assert_eq "server still answers" "$?" "0"
+    run_update 0.01 --force
+    wait_out "Start it again"
+    assert_contains "--force: stopped anyway" "$(calls)" "sudo got SIGTERM"
+    restart_api; finish
 }
 test_force_goes_on_past_busy_sessions() {
     setup_update; failing_selftest
@@ -136,6 +161,17 @@ test_selftest_nonzero_exit_stops_too() {
     assert_contains "says the status" "$(out)" "self-test failed (exit 4)"
     assert_not_contains "not asked to stop" "$(out)" "Stop the server"
 }
+test_selftest_needs_ok_lines_and_only_ok_lines() {
+    setup_update; : > "$TEST_TMP/selftest"
+    run_update 0.01; finish
+    assert_eq "no output: exit 1" "$RC" "1"
+    assert_contains "no output: says so" "$(out)" "the sandbox self-test failed (exit 0, no ok lines)"
+    printf 'ok   one\nokay /home/other is readable\n' > "$TEST_TMP/selftest"
+    run_update 0.01; finish
+    assert_eq "okay is not ok: exit 1" "$RC" "1"
+    assert_contains "prints that line" "$(out)" "okay /home/other is readable"
+    assert_not_contains "not asked to stop" "$(out)" "Stop the server"
+}
 test_versions_and_already_current() {
     setup_update; failing_selftest
     run_update 0.01; finish
@@ -162,6 +198,16 @@ test_stop_through_the_pid_file_then_wait_for_the_restart() {
     assert_contains "server back" "$(out)" "The server is answering again."
     assert_contains "models.sh output passed through" "$(out)" "Models for this brief."
 }
+test_interrupted_after_the_stop_says_how_to_start_again() {
+    setup_update; start_stub_server
+    run_update 0.01
+    wait_out "Start it again"
+    pkill -TERM -P "$UPDATE_PID" -f update-opencode.sh
+    finish
+    assert_eq "exit 1" "$RC" "1"
+    assert_contains "says the server is down and how to start it" "$(out)" \
+        "chargehand: interrupted with the server stopped: start it again with $START, then run"
+}
 test_stop_without_a_pid_file_asks_the_user() {
     setup_update
     run_update 0.01
@@ -178,10 +224,19 @@ test_a_stale_pid_file_is_not_trusted() {
     # the right name, the wrong start time. Signalling it would be wrong.
     "$TEST_TMP/bin/sudo" -n -u agentx /opt/ch/launcher >/dev/null 2>&1 & OTHER_PID=$!
     mkdir -p "$HARNESS_STATE_DIR"; printf '%s\n1\n' "$OTHER_PID" > "$HARNESS_STATE_DIR/server.pid"
+    chmod 600 "$HARNESS_STATE_DIR/server.pid"   # as start-server.sh writes it: only the start time is wrong
     run_update 0.01
     wait_out "Stop the server now"
     assert_not_contains "the other process was not signalled" "$(calls)" "SIGTERM"
     assert_eq "and is still running" "$(kill -0 "$OTHER_PID" 2>/dev/null && echo alive)" "alive"
+    stop_api; wait_out "Start it again"; restart_api; finish
+}
+test_a_pid_file_others_can_write_is_not_trusted() {
+    setup_update; start_stub_server
+    chmod 664 "$HARNESS_STATE_DIR/server.pid"   # the right process, but anyone in the group could have written it
+    run_update 0.01
+    wait_out "Stop the server now"
+    assert_not_contains "not signalled" "$(calls)" "SIGTERM"
     stop_api; wait_out "Start it again"; restart_api; finish
 }
 test_server_that_never_stops_gives_up() {
