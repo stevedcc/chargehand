@@ -9,10 +9,12 @@
 set -uo pipefail
 # A wrapper that cannot run is reported below; without this, a failed exec ends the script bare.
 shopt -s execfail
+# This script by its absolute path: the wrapper may change directory before it runs it again.
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/${BASH_SOURCE[0]##*/}"
 HARNESS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 . "$HARNESS_ROOT/scripts/lib/harness.sh"
 . "$HARNESS_ROOT/scripts/lib/api.sh"
-usage() { sed -n '5,6p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '5,6p' "$SELF" | sed 's/^# \{0,1\}//'; }
 
 inhibit=1 pw_arg= have_pw_arg=0 orig=()
 while [ $# -gt 0 ]; do
@@ -33,8 +35,10 @@ if [ "$have_pw_arg" = 1 ]; then
     # The re-run under the wrapper: the password is in this bash's argv until the exec at the end,
     # so it does no more than it must (the outer run probed the server already).
     [ "$kind" = wrapper ] || die "--password-arg is internal: only the wrapper form of server_password passes it"
-    [ "$pw_arg" != "$(_server_password_json | jq -r '.token // empty')" ] \
-        || die "server_password: the wrapper did not substitute the token"
+    tok="$(_server_password_json | jq -r '.token // empty')"
+    [ -n "$tok" ] || die 'server_password: the wrapper form needs a non-empty "wrapper" and a "token"'
+    [ "$pw_arg" != "$tok" ] || die "server_password: the wrapper did not substitute the token"
+    [ -n "$pw_arg" ] || die "server_password: the wrapper substituted an empty value"
     pw="$pw_arg"
 else
     # Any HTTP answer (a 401 too) means a server already holds the port; a second would fail to bind.
@@ -48,7 +52,7 @@ else
         tok="$(_server_password_json | jq -r '.token // empty')"
         [ "${#wrap[@]}" -gt 0 ] && [ -n "$tok" ] \
             || die 'server_password: the wrapper form needs a non-empty "wrapper" and a "token"'
-        exec "${wrap[@]}" bash "$0" --password-arg "$tok" "${orig[@]}" \
+        exec "${wrap[@]}" bash "$SELF" --password-arg "$tok" "${orig[@]}" \
             || die "server_password: could not run the wrapper (${wrap[0]})"
     fi
     pw="$(server_password_value)" || exit 2
@@ -69,11 +73,14 @@ fi
 # start time, so a reused PID is never mistaken for it. Mode 600 and written whole (a temporary
 # file, then mv): update-opencode.sh trusts only such a file of the owner's.
 pidf="$HARNESS_STATE_DIR/server.pid"
-{ mkdir -p "$HARNESS_STATE_DIR" && rm -f "$pidf.tmp" \
-    && ( umask 077; printf '%s\n%s\n' "$$" "$(sed 's/^.*) //' "/proc/$$/stat" | cut -d' ' -f20)" > "$pidf.tmp" ) \
-    && mv -f "$pidf.tmp" "$pidf"; } || die "could not write $pidf"
+# The temporary file is this process's own (two starts at once never share one); mv -T never moves
+# it into a directory that took the file's name.
+{ mkdir -p "$HARNESS_STATE_DIR" \
+    && ( umask 077; printf '%s\n%s\n' "$$" "$(sed 's/^.*) //' "/proc/$$/stat" | cut -d' ' -f20)" > "$pidf.$$" ) \
+    && mv -fT "$pidf.$$" "$pidf"; } || { rm -f "$pidf.$$"; die "could not write $pidf"; }
 echo "chargehand: starting the OpenCode server at $url (Ctrl-C stops it)" >&2
 # The password is in the environment of this exec chain (the inhibitor, sudo and the launcher; the
 # sudoers rule keeps OPENCODE_SERVER_PASSWORD for the launcher only), the owner's processes, for the
 # server's lifetime. Never in their argv or a file.
-OPENCODE_SERVER_PASSWORD="$pw" exec "${cmd[@]}" sudo -n -u "$agent" "$launcher"
+OPENCODE_SERVER_PASSWORD="$pw" exec "${cmd[@]}" sudo -n -u "$agent" "$launcher" \
+    || die "could not run sudo or the inhibitor (${cmd[0]:-sudo})"

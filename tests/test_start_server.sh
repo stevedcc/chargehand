@@ -75,6 +75,15 @@ test_pid_file_write_failure_stops_before_the_launcher() {
     assert_contains "says why" "$out" "could not write $HARNESS_STATE_DIR/server.pid"
     assert_eq "launcher not run" "$(calls)" ""
 }
+test_pid_file_path_taken_by_a_directory_stops_before_the_launcher() {
+    setup_bin; sudo_stub; export SS_PW="$PW"; with_form '{"env": "SS_PW"}'
+    mkdir -p "$HARNESS_STATE_DIR/server.pid"
+    out="$(run_start --no-inhibit 2>&1)"; rc=$?
+    assert_eq "exit 2" "$rc" "2"
+    assert_contains "says why" "$out" "could not write $HARNESS_STATE_DIR/server.pid"
+    assert_eq "launcher not run" "$(calls)" ""
+    assert_eq "no temporary file left" "$(ls -A "$HARNESS_STATE_DIR")" "server.pid"
+}
 test_password_with_a_newline_is_refused() {
     setup_bin; sudo_stub; export SS_PW=$'two\nlines'; with_form '{"env": "SS_PW"}'
     out="$(run_start --no-inhibit 2>&1)"; rc=$?
@@ -129,6 +138,28 @@ test_wrapper_that_does_not_substitute_is_refused() {
     assert_contains "says why" "$out" "server_password: the wrapper did not substitute the token"
     assert_not_contains "launcher not run" "$(calls)" "/opt/ch/launcher"
     assert_eq "no pid file" "$(no_pid_file)" "no"
+}
+test_wrapper_that_substitutes_an_empty_value_is_refused() {
+    setup_bin; sudo_stub; stub wrap 'args=(); for a in "$@"; do args+=("${a//TOKEN/}"); done; exec "${args[@]}"'
+    with_form '{"wrapper": ["wrap"], "token": "TOKEN"}'
+    out="$(run_start --no-inhibit 2>&1)"; rc=$?
+    assert_eq "exit 2" "$rc" "2"
+    assert_contains "says why" "$out" "server_password: the wrapper substituted an empty value"
+    assert_not_contains "launcher not run" "$(calls)" "/opt/ch/launcher"
+}
+test_wrapper_that_changes_directory_still_finds_the_script() {
+    setup_bin; sudo_stub
+    stub wrap 'cd /; args=(); for a in "$@"; do args+=("${a//TOKEN/$EXPECTED_PW}"); done; exec "${args[@]}"'
+    with_form '{"wrapper": ["wrap"], "token": "TOKEN"}'
+    out="$(cd "$(dirname "$START")" && PATH="$TEST_TMP/bin:$TEST_TMP/sys" "$(type -P bash)" ./start-server.sh --no-inhibit 2>&1)"; rc=$?
+    assert_eq "exit 0" "$rc" "0"
+    assert_contains "launcher got the value" "$(calls)" "pw=match argv=-n -u agentx /opt/ch/launcher"
+}
+test_missing_sudo_is_reported() {
+    setup_bin; export SS_PW="$PW"; with_form '{"env": "SS_PW"}'   # no sudo on PATH
+    out="$(run_start --no-inhibit 2>&1)"; rc=$?
+    assert_eq "exit 2" "$rc" "2"
+    assert_contains "says why" "$out" "could not run sudo"
 }
 test_wrapper_form_needs_a_wrapper_and_a_token() {
     setup_bin; sudo_stub; wrap_stub
