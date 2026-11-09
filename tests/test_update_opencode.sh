@@ -59,7 +59,8 @@ SH
     chmod +x "$TEST_TMP/bin/sudo" "$TEST_TMP/bin/gnome-session-inhibit"
     export PATH="$TEST_TMP/bin:$PATH" TEST_TMP API_PID API_DIR
     echo "1.0.0" > "$TEST_TMP/version"
-    printf 'ok   boundary one\nok   boundary two\n' > "$TEST_TMP/selftest"
+    # As the launcher prints it: section headers, indented ok lines.
+    printf 'Must be blocked:\n  ok    see /home/other\nMust work:\n  ok    write own clone\n' > "$TEST_TMP/selftest"
 }
 calls() { cat "$TEST_TMP/calls" 2>/dev/null; }
 # After each test (run_tests calls it): a failed test must not leave a stub server or an update
@@ -72,7 +73,7 @@ after_each() {
     fi
     if [ -n "${OTHER_PID:-}" ]; then kill "$OTHER_PID" 2>/dev/null; wait "$OTHER_PID" 2>/dev/null; OTHER_PID=; fi
 }
-failing_selftest() { printf 'ok   one\nFAIL /home/other is visible\n' > "$TEST_TMP/selftest"; }
+failing_selftest() { printf 'Must be blocked:\n  ok    one\n  FAIL  see /home/other (got yes, want no)\n' > "$TEST_TMP/selftest"; echo 1 > "$TEST_TMP/selftest.rc"; }
 # run_update SCALE ARGS...: in the background; output in $TEST_TMP/out, status in $TEST_TMP/rc.
 run_update() {
     local scale="$1"; shift
@@ -90,7 +91,7 @@ out() { cat "$TEST_TMP/out" 2>/dev/null; }
 wait_out() { local _; for _ in $(seq 200); do grep -qF -- "$1" "$TEST_TMP/out" 2>/dev/null && return 0; sleep 0.05; done; return 1; }
 # The server coming back: the fake API again, on the same port, with the same fixtures.
 restart_api() {
-    FAKE_API_PORT="${API_URL##*:}" FAKE_API_PASSWORD=test-password python3 "$HARNESS_ROOT/tests/fake_api.py" "$API_DIR" &
+    FAKE_API_PORT="${API_URL##*:}" FAKE_API_PASSWORD=test-password FAKE_API_OPEN="${FAKE_API_OPEN:-}" python3 "$HARNESS_ROOT/tests/fake_api.py" "$API_DIR" &
     API_PID=$!
 }
 # start_stub_server: start-server.sh itself (its own config: a port nothing answers on), so the pid
@@ -130,6 +131,15 @@ test_a_session_busy_by_the_stop_is_refused() {
     assert_contains "--force: stopped anyway" "$(calls)" "sudo got SIGTERM"
     restart_api; finish
 }
+test_unreadable_session_activity_refuses() {
+    setup_update; start_stub_server
+    # A recent session whose messages cannot be read (no fixture: 404): busy or not is unknown.
+    fixture GET /api/session "{\"data\": [$(session ses_odd go "$(now_ms)" "Brief 21a")]}"
+    run_update 0.01; finish
+    assert_eq "exit 1" "$RC" "1"
+    assert_contains "says why" "$(out)" "could not read the activity of every session"
+    assert_eq "nothing run as the agent user" "$(calls | grep -c '^sudo -iu')" "0"
+}
 test_force_goes_on_past_busy_sessions() {
     setup_update; failing_selftest
     fixture GET /api/session "{\"data\": [$(session ses_busy go "$(now_ms)" "Brief 19a")]}"
@@ -148,14 +158,14 @@ test_failing_selftest_stops_before_the_server_is_touched() {
     setup_update; failing_selftest; start_stub_server
     run_update 0.01; finish; rc="$RC"
     assert_eq "exit 1" "$rc" "1"
-    assert_contains "prints the failing line" "$(out)" "FAIL /home/other is visible"
-    assert_not_contains "not the passing ones" "$(out)" "ok   one"
+    assert_contains "prints the failing line" "$(out)" "FAIL  see /home/other (got yes, want no)"
+    assert_not_contains "not the passing ones" "$(out)" "ok    one"
     assert_not_contains "server not signalled" "$(calls)" "SIGTERM"
     assert_not_contains "not asked to stop" "$(out)" "Stop the server"
     oc_answers; assert_eq "server still answers" "$?" "0"
 }
 test_selftest_nonzero_exit_stops_too() {
-    setup_update; echo 4 > "$TEST_TMP/selftest.rc"; printf 'ok   all lines fine\n' > "$TEST_TMP/selftest"
+    setup_update; echo 4 > "$TEST_TMP/selftest.rc"
     run_update 0.01; finish; rc="$RC"
     assert_eq "exit 1" "$rc" "1"
     assert_contains "says the status" "$(out)" "self-test failed (exit 4)"
@@ -166,11 +176,18 @@ test_selftest_needs_ok_lines_and_only_ok_lines() {
     run_update 0.01; finish
     assert_eq "no output: exit 1" "$RC" "1"
     assert_contains "no output: says so" "$(out)" "the sandbox self-test failed (exit 0, no ok lines)"
-    printf 'ok   one\nokay /home/other is readable\n' > "$TEST_TMP/selftest"
+    printf 'Must be blocked:\n  ok    one\n  okay /home/other is readable\n' > "$TEST_TMP/selftest"
     run_update 0.01; finish
     assert_eq "okay is not ok: exit 1" "$RC" "1"
     assert_contains "prints that line" "$(out)" "okay /home/other is readable"
     assert_not_contains "not asked to stop" "$(out)" "Stop the server"
+}
+test_real_selftest_output_passes() {
+    setup_update; start_stub_server
+    run_update 0.01
+    wait_out "Start it again"
+    assert_contains "headers and indented ok lines pass" "$(out)" "Self-test: 2 ok lines."
+    restart_api; finish
 }
 test_versions_and_already_current() {
     setup_update; failing_selftest
@@ -206,7 +223,18 @@ test_interrupted_after_the_stop_says_how_to_start_again() {
     finish
     assert_eq "exit 1" "$RC" "1"
     assert_contains "says the server is down and how to start it" "$(out)" \
-        "chargehand: interrupted with the server stopped: start it again with $START, then run"
+        "chargehand: interrupted; the server may be stopped: start it again with $START, then run"
+}
+test_a_restarted_server_without_a_password_is_reported() {
+    setup_update; start_stub_server
+    run_update 0.01
+    wait_out "Start it again"
+    # The server comes back, but answers without credentials: its password did not reach it.
+    FAKE_API_OPEN=1 restart_api
+    finish
+    assert_eq "exit 1" "$RC" "1"
+    assert_contains "says so" "$(out)" "answers without a password"
+    assert_not_contains "no models run" "$(out)" "Models for this brief."
 }
 test_stop_without_a_pid_file_asks_the_user() {
     setup_update

@@ -4,7 +4,8 @@
 Serves <dir>/fixtures/<METHOD><path>.json (query strings ignored). A numbered series
 <METHOD><path>.1.json, .2.json, ... is served one file per request, the last repeating.
 Every request is appended to <dir>/requests.jsonl as {method, path, query, auth, body}.
-Requests without HTTP Basic "opencode:$FAKE_API_PASSWORD" get 401; unknown paths get 404.
+Requests without HTTP Basic "opencode:$FAKE_API_PASSWORD" get 401 (unless FAKE_API_OPEN is set: a
+server started without a password); unknown paths get 404.
 If <dir>/delay holds a number of seconds, every answer waits that long first.
 Writes the port it listens on to <dir>/port; FAKE_API_PORT picks it (a server "coming back").
 Usage: fake_api.py <dir>
@@ -33,7 +34,7 @@ class Handler(BaseHTTPRequestHandler):
                                   "auth": auth, "body": body}) + "\n")
         if os.path.exists(os.path.join(ROOT, "delay")):
             time.sleep(float(open(os.path.join(ROOT, "delay")).read().strip() or 0))
-        if auth != EXPECTED:
+        if auth != EXPECTED and not os.environ.get("FAKE_API_OPEN"):
             return self.reply(401, {"error": "unauthorized"})
         base = os.path.join(ROOT, "fixtures", method + parts.path)
         series, n = [], 1

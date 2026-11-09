@@ -64,8 +64,14 @@ server_sudo() {
 # before the stop, as a brief may start while OpenCode upgrades.
 check_busy() {
     local sessions busy s
+    local ids
     sessions="$(oc_sessions)" || die "could not list the sessions at $url (is server_password right?)"
-    mapfile -t busy < <(oc_busy_session_ids)
+    if ! ids="$(oc_busy_session_ids)" && [ "$force" = 0 ]; then
+        [ -z "${1:-}" ] || echo "$1"
+        echo "chargehand: could not read the activity of every session, so a busy one may be missed; run again, or with --force" >&2
+        exit 1
+    fi
+    mapfile -t busy < <(grep . <<<"$ids")
     [ "${#busy[@]}" -gt 0 ] || return 0
     echo "Busy sessions (updated in the last ${MODELS_BUSY_WINDOW_MIN:-20} min, not idle since their last prompt):"
     for s in "${busy[@]}"; do
@@ -95,8 +101,11 @@ else echo "OpenCode upgraded: $before -> $after"; fi
 
 # 4. The sandbox must still hold before the server goes down: a FAIL line is a broken boundary.
 st="$(sudo -n -u "$agent" "$launcher" --selftest --project "$project" 2>&1)"; rc=$?
-# An ok line is "ok" alone or "ok " and more ("okay ..." is not); at least one must come.
-bad="$(grep -v -E -e '^ok( |$)' -e '^$' <<<"$st")"; oks="$(grep -c -E '^ok( |$)' <<<"$st")"
+# The launcher prints section headers ("Must be blocked:") and indented "ok" or "FAIL" lines. An ok
+# line is "ok" alone or "ok " and more ("okay ..." is not); at least one must come, and any line
+# that is neither an ok line nor a header (a FAIL, a stray message) stops it.
+okre='^ *ok( |$)'
+bad="$(grep -v -E -e "$okre" -e '^[A-Z][A-Za-z ]*:$' -e '^$' <<<"$st")"; oks="$(grep -c -E "$okre" <<<"$st")"
 if [ "$rc" -ne 0 ] || [ -n "$bad" ] || [ "$oks" -eq 0 ]; then
     [ -z "$bad" ] || agent_text <<<"$bad"
     [ "$oks" -gt 0 ] && why="exit $rc" || why="exit $rc, no ok lines"
@@ -111,7 +120,7 @@ if ! oc_answers; then
 else
     check_busy "OpenCode is upgraded; the server was not touched."
     # From here on the server may be down: an interrupt says how to bring it back.
-    trap 'echo "chargehand: interrupted with the server stopped: start it again with $HERE/start-server.sh, then run bash $HARNESS_ROOT/skills/running-briefs/scripts/models.sh --project $project" >&2; exit 1' INT TERM
+    trap 'echo "chargehand: interrupted; the server may be stopped: start it again with $HERE/start-server.sh, then run bash $HARNESS_ROOT/skills/running-briefs/scripts/models.sh --project $project" >&2; exit 1' INT TERM
     if sp="$(server_sudo)"; then
         echo "Stopping the server (SIGTERM to its sudo, PID $sp)."
         kill -TERM "$sp" || echo "chargehand: could not signal PID $sp; stop the server now (Ctrl-C in its terminal)" >&2
@@ -133,6 +142,13 @@ wait_server up 5 1800 || {
 }
 echo "The server is answering again."
 trap - INT TERM
+# It must refuse a request without credentials: the launcher refuses to serve without a password,
+# but an older installed launcher does not, and then the server would be open to every local user.
+code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$url/api/session")"
+if [ "$code" != 401 ]; then
+    echo "chargehand: the server at $url answers without a password (HTTP $code to a request with no credentials): stop it, re-run setup-agent-user.sh (launcher and sudoers), then start-server.sh" >&2
+    exit 1
+fi
 
 # 7. The allocation against the new server (its model list may have changed).
 bash "$HARNESS_ROOT/skills/running-briefs/scripts/models.sh" --project "$project"
