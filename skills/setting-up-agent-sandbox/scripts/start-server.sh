@@ -5,7 +5,10 @@
 # Usage: start-server.sh [--no-inhibit]
 #   --no-inhibit   do not wrap the server in gnome-session-inhibit / systemd-inhibit
 # Exit 1 when server_url already answers, 2 on a usage or config problem; otherwise the server's.
+# Linux only (/proc).
 set -uo pipefail
+# A wrapper that cannot run is reported below; without this, a failed exec ends the script bare.
+shopt -s execfail
 HARNESS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 . "$HARNESS_ROOT/scripts/lib/harness.sh"
 . "$HARNESS_ROOT/scripts/lib/api.sh"
@@ -25,24 +28,30 @@ done
 url="$(config_get server_url http://127.0.0.1:4096)" || exit 2
 agent="$(config_get agent_user opencode)" || exit 2
 launcher="$(config_get launcher /usr/local/bin/chargehand-sandbox)" || exit 2
-# Any HTTP answer (a 401 too) means a server already holds the port; a second would fail to bind.
-if oc_answers; then echo "chargehand: an OpenCode server is already running at $url" >&2; exit 1; fi
-
 kind="$(server_password_form)" || exit 2
 if [ "$have_pw_arg" = 1 ]; then
+    # The re-run under the wrapper: the password is in this bash's argv until the exec at the end,
+    # so it does no more than it must (the outer run probed the server already).
     [ "$kind" = wrapper ] || die "--password-arg is internal: only the wrapper form of server_password passes it"
+    [ "$pw_arg" != "$(_server_password_json | jq -r '.token // empty')" ] \
+        || die "server_password: the wrapper did not substitute the token"
     pw="$pw_arg"
-elif [ "$kind" = wrapper ]; then
-    # The wrapper (e.g. `tswap run`) only substitutes into a command's arguments and refuses env,
-    # printf or inline shells, so this script runs again as a script file under it, the token in
-    # one argument. The value then sits in that bash's argv until it execs the launcher below: the
-    # same exposure oc_api already accepts for its wrapper curl call.
-    mapfile -t wrap < <(_server_password_json | jq -r '.wrapper[]')
-    tok="$(_server_password_json | jq -r .token)"
-    exec "${wrap[@]}" bash "$0" --password-arg "$tok" "${orig[@]}"
 else
-    # The "x" keeps a value's own trailing newlines, as oc_api does.
-    pw="$(server_password_value && printf x)" || exit 2; pw="${pw%x}"
+    # Any HTTP answer (a 401 too) means a server already holds the port; a second would fail to bind.
+    if oc_answers; then echo "chargehand: an OpenCode server is already running at $url" >&2; exit 1; fi
+    if [ "$kind" = wrapper ]; then
+        # The wrapper (e.g. `tswap run`) only substitutes into a command's arguments and refuses
+        # env, printf or inline shells, so this script runs again as a script file under it, the
+        # token in one argument. The value is then in that bash's argv, visible in the process list,
+        # until it execs the inhibitor or sudo below: a few config reads, no network.
+        mapfile -t wrap < <(_server_password_json | jq -r '.wrapper[]?')
+        tok="$(_server_password_json | jq -r '.token // empty')"
+        [ "${#wrap[@]}" -gt 0 ] && [ -n "$tok" ] \
+            || die 'server_password: the wrapper form needs a non-empty "wrapper" and a "token"'
+        exec "${wrap[@]}" bash "$0" --password-arg "$tok" "${orig[@]}" \
+            || die "server_password: could not run the wrapper (${wrap[0]})"
+    fi
+    pw="$(server_password_value)" || exit 2
 fi
 
 cmd=()
@@ -57,10 +66,14 @@ if [ "$inhibit" = 1 ]; then
 fi
 
 # update-opencode.sh stops this server through this file: the PID (kept by the exec below) and its
-# start time, so a reused PID is never mistaken for it.
-mkdir -p "$HARNESS_STATE_DIR"
-printf '%s\n%s\n' "$$" "$(sed 's/^.*) //' "/proc/$$/stat" | cut -d' ' -f20)" > "$HARNESS_STATE_DIR/server.pid"
+# start time, so a reused PID is never mistaken for it. Mode 600 and written whole (a temporary
+# file, then mv): update-opencode.sh trusts only such a file of the owner's.
+pidf="$HARNESS_STATE_DIR/server.pid"
+{ mkdir -p "$HARNESS_STATE_DIR" && rm -f "$pidf.tmp" \
+    && ( umask 077; printf '%s\n%s\n' "$$" "$(sed 's/^.*) //' "/proc/$$/stat" | cut -d' ' -f20)" > "$pidf.tmp" ) \
+    && mv -f "$pidf.tmp" "$pidf"; } || die "could not write $pidf"
 echo "chargehand: starting the OpenCode server at $url (Ctrl-C stops it)" >&2
-# The password is in this exec's environment only (the sudoers rule keeps OPENCODE_SERVER_PASSWORD
-# for the launcher): never in an argv or a file.
+# The password is in the environment of this exec chain (the inhibitor, sudo and the launcher; the
+# sudoers rule keeps OPENCODE_SERVER_PASSWORD for the launcher only), the owner's processes, for the
+# server's lifetime. Never in their argv or a file.
 OPENCODE_SERVER_PASSWORD="$pw" exec "${cmd[@]}" sudo -n -u "$agent" "$launcher"
