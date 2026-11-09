@@ -66,6 +66,12 @@ line. If nothing has moved for 15 minutes, treat it as exit 7 (stalled) instead.
 Never `sleep` or poll in a foreground call to wait for an agent, the watcher or verify; start
 the watcher or verify with `run_in_background` and act when it exits. The harness wakes you.
 
+A wait of your own (an `until` loop on a background command's output, a CI or review wait) needs two
+exits besides success: a deadline (`timeout` in the loop, never longer than the call's own), and
+the end of what it waits for, whatever that printed (Claude Code ends a finished background
+command's output file with `[exited with code N]`; test for that line, not only the text you hope
+for). A subagent's background loops outlive it: before a subagent hands back, it stops its own.
+
 Only tags that are still running: drop a tag that has gone idle (exit 0, 9) or been accepted
 before restarting, or the watcher exits again at once on its idle. One watcher per brief: a second
 one for the same tag refuses to start (exit 2, pid file `watch.pid` in the brief's state folder);
