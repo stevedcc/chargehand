@@ -246,9 +246,14 @@ Once per machine; steps 4 and 5 again for each further project.
    bash <plugin>/skills/setting-up-agent-sandbox/scripts/start-server.sh
    ```
    It takes the password from `config.json`'s `server_password`, in any of its forms (a secret
-   manager's wrapper too, e.g. `tswap run`), hands it to the launcher in its environment only,
-   and keeps the machine from suspending while the server runs (`gnome-session-inhibit`, else
-   `systemd-inhibit`; `--no-inhibit` skips that). Ctrl-C stops the server.
+   manager's wrapper too, e.g. `tswap run`), and hands it on in the environment of the processes
+   that run the server (the inhibitor, `sudo` and the launcher: yours, for the server's lifetime),
+   never in an argument or a file. The wrapper form has one exception: the script runs again under
+   the wrapper with the value as an argument, so it is in the process list for the moment that run
+   takes to start the server (a few config reads), as it is in `curl`'s for each API call in that
+   form. A value with a line break is refused. The script also keeps the machine from suspending
+   while the server runs (`gnome-session-inhibit`, else `systemd-inhibit`; `--no-inhibit` skips
+   that). Ctrl-C stops the server.
 8. **Run a brief.** Ask Claude to write one (`writing-briefs`) and run it (`running-briefs`); it
    launches, watches, answers, verifies (`verifying-and-accepting`) and writes the retro
    (`writing-retros`).
@@ -263,10 +268,12 @@ bash <plugin>/skills/setting-up-agent-sandbox/scripts/update-opencode.sh --proje
 ```
 
 It refuses while sessions are busy (`--force` goes on anyway), upgrades OpenCode as the agent
-user (`sudo -iu`, so it asks for your password), runs the sandbox self-test and stops on any line
-that is not `ok` before the server is touched, stops the server that `start-server.sh` started
-(or asks you to press Ctrl-C in its terminal), waits for you to run `start-server.sh` again, and
-then prints the project's model allocation against the new server.
+user (`sudo -iu`: one password prompt, and the agent's own login shell and `opencode` binary run,
+as the agent), runs the sandbox self-test and stops before the server is touched unless it prints
+`ok` lines and nothing else, checks for busy sessions again, stops the server that
+`start-server.sh` started (or asks you to press Ctrl-C in its terminal), waits for you to run
+`start-server.sh` again, and then prints the project's model allocation against the new server.
+Interrupted after the stop, it says how to start the server again. Linux only.
 
 ## Tests
 
