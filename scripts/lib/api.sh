@@ -11,6 +11,8 @@ oc_api() {
     local method="$1" path="$2" body="${3:-}" url user kind pw
     url="$(config_get server_url http://127.0.0.1:4096)$path" || return 2
     user="$(config_get server_user opencode)" || return 2
+    # The user goes into curl's config line too (below), escaped like the password.
+    [[ "$user" != *[$'\n\r']* ]] || die "config.json: server_user contains a line break"
     local args=(-sS -f --max-time 30 -X "$method" -H 'Content-Type: application/json')
     [ -n "$body" ] && args+=(--data-binary "@$body")
     kind="$(server_password_form)" || exit 2
@@ -27,6 +29,7 @@ oc_api() {
     # server_password_value refuses line breaks, which would end this config line.
     pw="$(server_password_value)" || exit 2
     pw="${pw//\\/\\\\}"; pw="${pw//\"/\\\"}"
+    user="${user//\\/\\\\}"; user="${user//\"/\\\"}"
     printf 'user = "%s:%s"\n' "$user" "$pw" | curl -K - "${args[@]}" "$url"
 }
 
@@ -121,17 +124,21 @@ oc_sessions() {
 # MODELS_BUSY_WINDOW_MIN minutes (20; a working session updates constantly), no "idle" message since
 # its last prompt (the test watch.sh uses), and its newest reply not an error (a session that died on
 # a 402 or a quota error holds no capacity). PROVIDER limits it to that provider's sessions; without
-# it every session counts. A session list that cannot be read gives no ids.
+# it every session counts. Status 2 when the session list or a recent session's messages could not
+# be read: the ids printed are then incomplete (a caller that must not miss one treats that as busy).
 oc_busy_session_ids() {
-    local provider="${1:-}" since s
+    local provider="${1:-}" since s list msgs rc=0
     since=$(( ($(date +%s) - ${MODELS_BUSY_WINDOW_MIN:-20} * 60) * 1000 ))
+    list="$(oc_sessions)" || return 2
     while read -r s; do
         [ -n "$s" ] || continue
-        oc_api GET "/api/session/$s/message" 2>/dev/null | oc_newest_first | jq -e '.data | (map(.type) | index("user")) as $u
+        msgs="$(oc_api GET "/api/session/$s/message" 2>/dev/null)" || { rc=2; continue; }
+        oc_newest_first <<<"$msgs" | jq -e '.data | (map(.type) | index("user")) as $u
             | .[0:$u] | (map(select(.type == "idle")) | length == 0)
               and ((map(select(.type == "assistant")) | first // {} | .error) == null)' >/dev/null && echo "$s"
-    done < <(oc_sessions | jq -r --arg p "$provider" --argjson t "$since" \
-        '.data[]? | select(($p == "" or .model.providerID == $p) and (.time.updated // 0) >= $t) | .id')
+    done < <(jq -r --arg p "$provider" --argjson t "$since" \
+        '.data[]? | select(($p == "" or .model.providerID == $p) and (.time.updated // 0) >= $t) | .id' <<<"$list")
+    return "$rc"
 }
 
 # oc_newest_first: filter a message-list response ({data: [...]}) to newest-first by time.created
