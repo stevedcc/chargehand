@@ -45,8 +45,8 @@ owner repo <--fetch-- agent clone   (git fetch with upload-pack only: no hooks, 
    must print only `ok` lines. Read every line; a `FAIL` is a broken boundary, not noise.
 5. The owner starts the server in a terminal they keep open:
    `bash <plugin>/skills/setting-up-agent-sandbox/scripts/start-server.sh`. It reads the
-   password from `config.json`'s `server_password` (any form, the wrapper too; a value with a line
-   break is refused), passes it on in the environment of the inhibitor, sudo and the launcher (in
+   password from `config.json`'s `server_password` (any form, the wrapper too; a value read in the
+   env, file or command form is refused if it has a line break), passes it on in the environment of the inhibitor, sudo and the launcher (in
    the wrapper form it is also in one argument while the script starts again under the wrapper),
    and inhibits suspend while the server runs. Exit 1 means a
    server already answers at `server_url`.
@@ -58,9 +58,9 @@ agents only see the root-owned installed copies.
 The owner runs `bash <plugin>/skills/setting-up-agent-sandbox/scripts/update-opencode.sh --project <name>`
 (it asks for their sudo password for the upgrade; give it ready to paste, never run it yourself).
 It refuses while sessions are busy (`--force` only with the owner's yes: their work stops), upgrades,
-self-tests (no `ok` line, or any other line, stops it before the server is touched), checks for busy
-sessions again (a brief may have started meanwhile), stops the server, waits
-for `start-server.sh` to be run again, and prints the model allocation. Read the self-test lines
+self-tests (no `ok` line, or a `FAIL` or any other line but a section header, stops it before the server is touched), checks for busy
+sessions again (a brief may have started meanwhile; activity it cannot read counts as busy), stops the server, waits
+for `start-server.sh` to be run again, checks the server refuses a request with no password, and prints the model allocation. Read the self-test lines
 and the allocation as in steps 4 and 1.
 
 ## Container lane
