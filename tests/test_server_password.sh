@@ -27,6 +27,15 @@ test_value_env() {
     out="$( (SP_TEST_PW= server_password_value) 2>&1)"; assert_eq "empty: exit 2" "$?" "2"
     assert_contains "empty: says which" "$out" 'server_password: $SP_TEST_PW is empty'
 }
+test_value_with_a_line_break_is_refused() {
+    with_form '{"env": "SP_TEST_PW"}'
+    for v in $'a\nb' $'a\rb' $'trailing\n'; do
+        out="$( (SP_TEST_PW="$v" server_password_value) 2>&1)"; assert_eq "exit 2 for ${v@Q}" "$?" "2"
+        assert_contains "says why for ${v@Q}" "$out" "server_password: the value contains a line break"
+    done
+    printf 'one\ntwo\n' > "$HOME/pw"; chmod 600 "$HOME/pw"; with_form '{"file": "~/pw"}'
+    out="$( (server_password_value) 2>&1)"; assert_eq "two-line file: exit 2" "$?" "2"
+}
 test_value_file() {
     printf 'from-file\n' > "$HOME/pw"; chmod 600 "$HOME/pw"
     with_form '{"file": "~/pw"}'

@@ -37,6 +37,13 @@ test_password_with_quote_and_backslash() {
     start_api 'p"w\x'; fixture GET /api/agent '{"data": []}'
     assert_eq "escaped for curl config" "$(oc_api GET /api/agent)" '{"data": []}'
 }
+test_password_with_a_line_break_is_refused_before_curl() {
+    # curl's config would end the user line at the break and read the rest as more options.
+    start_api; export TEST_SERVER_PASSWORD=$'pw\nurl = "http://127.0.0.1:1/"'
+    out="$( (oc_api GET /api/agent) 2>&1)"; assert_eq "exit 2" "$?" "2"
+    assert_contains "says why" "$out" "server_password: the value contains a line break"
+    assert_eq "nothing sent" "$(requests)" ""
+}
 test_wrong_password_and_404_fail() {
     start_api; export TEST_SERVER_PASSWORD=wrong
     (oc_api GET /api/agent >/dev/null 2>&1); assert_eq "401 fails" "$?" "22"

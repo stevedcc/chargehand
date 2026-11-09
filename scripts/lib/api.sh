@@ -24,8 +24,8 @@ oc_api() {
           "${wrap[@]}" curl "${args[@]}" -u "$user:$tok" "$url" ) 9>"$HARNESS_STATE_DIR/api.lock"
         return
     fi
-    # The "x" keeps a value's own trailing newlines, which $(...) would strip (an env value keeps them).
-    pw="$(server_password_value && printf x)" || exit 2; pw="${pw%x}"
+    # server_password_value refuses line breaks, which would end this config line.
+    pw="$(server_password_value)" || exit 2
     pw="${pw//\\/\\\\}"; pw="${pw//\"/\\\"}"
     printf 'user = "%s:%s"\n' "$user" "$pw" | curl -K - "${args[@]}" "$url"
 }
@@ -51,7 +51,9 @@ server_password_form() {
 
 # server_password_value: the password itself on stdout (no newline added), for the env, file and command forms. Callers
 # capture it into a variable and hand it on without a command line (curl's stdin, an environment
-# variable). The wrapper form never yields the value to Chargehand, so it dies here.
+# variable). The wrapper form never yields the value to Chargehand, so it dies here. A value with a
+# line break (CR or LF) dies too: oc_api's curl config would end the user line there and read the
+# rest as more options. (A file's or a command's final newlines are dropped first, as $(...) does.)
 server_password_value() {
     local form kind pw
     kind="$(server_password_form)" || exit 2
@@ -70,6 +72,7 @@ server_password_value() {
             pw="$("${cmd[@]}")" || die "server_password: the command failed" ;;
         wrapper) die "server_password: the wrapper form has no value to read (the wrapper substitutes it into a command)" ;;
     esac
+    [[ "$pw" != *[$'\n\r']* ]] || die "server_password: the value contains a line break"
     printf '%s' "$pw"
 }
 
