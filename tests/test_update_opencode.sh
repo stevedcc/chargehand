@@ -34,7 +34,14 @@ test_busy_session_ids_unreadable_activity() {
     fixture GET /api/session/s2/message '{"data": "x"}'
     out="$(oc_busy_session_ids)"; rc=$?
     assert_eq "unparseable body: status 2" "$rc" "2"
-    out="$(set -e; models_busy z)"; rc=$?
+    assert_eq "unparseable body: the readable busy one only" "$out" "s1"
+    # An object where the list should be: jq would iterate its values and could call it busy.
+    fixture GET /api/session/s2/message '{"data": {"a": {"type": "user"}}}'
+    out="$(oc_busy_session_ids)"; rc=$?
+    assert_eq "object instead of a list: status 2" "$rc" "2"
+    assert_eq "object instead of a list: not printed" "$out" "s1"
+    # The callers' own options (start-brief.sh, models.sh).
+    out="$(set -euo pipefail; models_busy z)"; rc=$?
     assert_eq "models_busy: status 0" "$rc" "0"
     assert_eq "models_busy: the count it could read" "$out" "1"
 }

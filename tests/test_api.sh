@@ -60,6 +60,10 @@ test_server_url_is_never_read_as_a_curl_option() {
     assert_eq "oc_api: not read as config" "$([ -e "$TEST_TMP/pwned" ] && echo written || echo none)" "none"
     rm -f "$TEST_TMP/pwned"; oc_answers >/dev/null 2>&1
     assert_eq "oc_answers: not read as config" "$([ -e "$TEST_TMP/pwned" ] && echo written || echo none)" "none"
+    rm -f "$TEST_TMP/pwned"
+    write_config "{\"server_url\": \"-K$TEST_TMP/evil.conf\", \"server_password\": {\"wrapper\": [\"env\"], \"token\": \"test-password\"}}"
+    (oc_api GET "" >/dev/null 2>&1)
+    assert_eq "oc_api, wrapper form: not read as config" "$([ -e "$TEST_TMP/pwned" ] && echo written || echo none)" "none"
 }
 test_wrong_password_and_404_fail() {
     start_api; export TEST_SERVER_PASSWORD=wrong
