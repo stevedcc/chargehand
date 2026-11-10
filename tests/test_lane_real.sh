@@ -40,12 +40,19 @@ export CONTAINERS_STORAGE_CONF="$REAL_TMP/storage.conf"
 
 mkdir -p "$REAL_TMP/ctx"
 cp "$HARNESS_ROOT/tests/fixtures/lane-demo/Containerfile" "$HARNESS_ROOT/images/runner/chargehand-run" "$REAL_TMP/ctx/"
+# The versions images/build.sh records on the runner image (images/runner/Containerfile's LABEL), fixed
+# here. This is the only place rt_image_label's `{{json .Config.Labels}}` meets a real Podman. Last in
+# the file, so the layers above stay cached.
+DEMO_SDK=11.0.100 DEMO_PW=1.64.1 DEMO_BROWSERS=chromium
+printf 'LABEL org.chargehand.runner.dotnet-sdk="%s" org.chargehand.runner.playwright="%s" org.chargehand.runner.browsers="%s"\n' \
+    "$DEMO_SDK" "$DEMO_PW" "$DEMO_BROWSERS" >> "$REAL_TMP/ctx/Containerfile"
 podman build -q -t "$DEMO_TAG" "$REAL_TMP/ctx" >/dev/null || { echo "  FAIL  could not build the demo image"; exit 1; }
 DEMO_DIGEST="$(podman image inspect --format '{{.Digest}}' "$DEMO_TAG")"
 DEMO_IMAGE="localhost/chargehand-lane-demo@$DEMO_DIGEST"
 
 # real_setup [jq-filter]: lane.json (Podman, project "demo": restore and build do nothing, one suite
 # that passes), and a bare repo holding the demo project under refs/verify/ (as the requester pushes).
+# $DEMO_GLOBAL_JSON, when set, is the commit's global.json (the demo project pins nothing otherwise).
 real_setup() {
     TEST_DIRS+=("$TEST_TMP")
     jq -n --arg img "$DEMO_IMAGE" '{
@@ -57,6 +64,7 @@ real_setup() {
         | jq --arg img "$DEMO_IMAGE" "${1:-.}" > "$HARNESS_CONFIG_DIR/lane.json"
     local seed="$TEST_TMP/seed" repo="$HOME/lane/repos/demo.git"
     cp -r "$HARNESS_ROOT/tests/fixtures/lane-demo/project" "$seed"
+    [ -z "${DEMO_GLOBAL_JSON:-}" ] || printf '%s\n' "$DEMO_GLOBAL_JSON" > "$seed/global.json"
     git init -q "$seed"
     git -C "$seed" add -A
     git -C "$seed" -c user.name=t -c user.email=t@example.invalid commit -q -m "lane demo"
@@ -110,6 +118,15 @@ test_real_service_file_from_the_commit() {
         | .projects.demo.services[0].ready_timeout_sec = 15'; verify
     assert_eq "exit" "$RC" "0"
     assert_not_contains "service got ready" "$OUT" "not ready"
+    assert_clean
+}
+test_real_image_not_matching_the_pins_exits_5() {
+    DEMO_GLOBAL_JSON='{ "sdk": { "version": "10.0.100" } }' real_setup; verify
+    assert_eq "exit" "$RC" "5"
+    assert_contains "the label read from the real image" "$OUT" "  .NET SDK: image $DEMO_SDK, commit 10.0.100 (global.json)"
+    assert_contains "the browsers label in the hint" "$OUT" "--rev $SHA --browsers \"$DEMO_BROWSERS\" --tag <registry/repo:tag> --push"
+    assert_not_contains "Playwright not pinned, not listed" "$OUT" "Playwright:"
+    assert_not_contains "never looked started" "$OUT" "Verifying"
     assert_clean
 }
 test_real_no_leftovers() {

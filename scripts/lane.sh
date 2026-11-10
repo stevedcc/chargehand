@@ -8,16 +8,19 @@
 #   Exit 0 passed; 10 the build or a suite failed or timed out (or a service never got ready, or a
 #   file a service gets from the commit is missing there or not a regular file);
 #   3 another verify is running on this machine; 4 the container runtime is unavailable;
+#   5 the runner image does not match the commit's pinned .NET SDK or Playwright version, or those
+#   pins cannot be read (see the message);
 #   2 usage or config (also: the commit is not in the lane's repo); other: could not run.
-#   Stdout: "Verifying <sha7> <subject>" once the machine lock is held, the runner's output, then
-#   "digests: runner=<sha256> <service>=<sha256> ...".
+#   Stdout: "Verifying <sha7> <subject>" once the machine lock is held and the image check passed,
+#   the runner's output, then "digests: runner=<sha256> <service>=<sha256> ...".
 set -uo pipefail
 LANE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
 . "$LANE_LIB/harness.sh"
 . "$LANE_LIB/lane.sh"
 . "$LANE_LIB/runtime.sh"
+. "$LANE_LIB/pins.sh"
 
-usage() { sed -n '4,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '4,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 ROLE_LABEL=chargehand.role=verify   # on every container and network the lane creates; the leftover sweep keys on it
 cant_run() { echo "chargehand-lane: $*" >&2; exit 1; }
 runtime_unavailable() { echo "chargehand-lane: the container runtime is unavailable ($CHARGEHAND_RUNTIME)" >&2; exit 4; }
@@ -139,6 +142,74 @@ drain_follow() {
     FOLLOW_PID=""
 }
 
+# read_pin FN: FN's pin (pins_sdk or pins_playwright) for $repo at $sha in PIN, status 0; status 1
+# when the commit pins nothing. Pins that cannot be read refuse the verify (exit 5), and so does a
+# status outside the pins contract (never a silent "not pinned").
+read_pin() {
+    local err rc
+    err="$(mktemp)" || cant_run "cannot create a temporary file"
+    PIN="$("$1" "$repo" "$sha" 2>"$err")"; rc=$?
+    if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then
+        echo "chargehand-lane: $sha7's version pins cannot be read: $(head -n 1 "$err")" >&2
+        rm -f "$err"; exit 5
+    fi
+    rm -f "$err"
+    return "$rc"
+}
+
+# image_label KEY: the runner image's label KEY in LABEL, status 0; status 3 on a runtime whose labels
+# are not read. An image that cannot be inspected is not local: it is pulled (once per verify, by its
+# pinned reference, the image rt_run would pull) and read again; a failed pull or read after it is a
+# runtime fault (exit 1), never an image without labels.
+image_label() {
+    local rc=0
+    LABEL="$(rt_image_label "$runner_image" "$1" 2>/dev/null)" || rc=$?
+    [ "$rc" -eq 0 ] || [ "$rc" -eq 3 ] || {
+        [ -z "$PULLED" ] || cant_run "could not pull $runner_image"
+        PULLED=1
+        rt_pull "$runner_image" >/dev/null 9>&- || cant_run "could not pull $runner_image"
+        rc=0; LABEL="$(rt_image_label "$runner_image" "$1" 2>/dev/null)" || rc=$?
+        [ "$rc" -eq 0 ] || cant_run "could not pull $runner_image"
+    }
+    return "$rc"
+}
+
+# check_image_pins: refuses (exit 5) a runner image whose recorded .NET SDK or Playwright version
+# differs from the commit's pins, with the command that rebuilds it. A commit that pins neither (not
+# a .NET project) is not checked. Values from the commit and the image are only compared and printed.
+check_image_pins() {
+    local pin_sdk="" pin_pw="" img_sdk="" img_pw="" browsers="" lines=()
+    if read_pin pins_sdk; then pin_sdk="$PIN"; fi
+    if read_pin pins_playwright; then pin_pw="$PIN"; fi
+    [ -n "$pin_sdk$pin_pw" ] || return 0
+    PULLED=""
+    if [ -n "$pin_sdk" ]; then
+        image_label org.chargehand.runner.dotnet-sdk || { not_checked; return 0; }
+        img_sdk="$LABEL"
+    fi
+    if [ -n "$pin_pw" ]; then
+        image_label org.chargehand.runner.playwright || { not_checked; return 0; }
+        img_pw="$LABEL"
+    fi
+    [ -z "$pin_sdk" ] || [ "$img_sdk" = "$pin_sdk" ] \
+        || lines+=("  .NET SDK: image $(_pins_printable "${img_sdk:-not recorded}"), commit $(_pins_printable "$pin_sdk") (global.json)")
+    [ -z "$pin_pw" ] || [ "$img_pw" = "$pin_pw" ] \
+        || lines+=("  Playwright: image $(_pins_printable "${img_pw:-not recorded}"), commit $(_pins_printable "$pin_pw")")
+    [ "${#lines[@]}" -gt 0 ] || return 0
+    image_label org.chargehand.runner.browsers || { not_checked; return 0; }
+    browsers="$LABEL"
+    [ -n "$browsers" ] || browsers="<the browsers the project's tests need>"
+    {
+        echo "chargehand-lane: the runner image does not match $sha7's pins:"
+        printf '%s\n' "${lines[@]}"
+        echo "Rebuild it from the lane's repo:"
+        echo "  images/build.sh runner --from $repo --rev $sha --browsers \"$(_pins_printable "$browsers")\" --tag <registry/repo:tag> --push"
+        echo "then set projects.$project.runner_image in lane.json to <registry/repo>@<the digest it prints>."
+    } >&2
+    exit 5
+}
+not_checked() { echo "chargehand-lane: warning: runtime $CHARGEHAND_RUNTIME: the runner image's versions are not checked" >&2; }
+
 # minutes EXPR: awk arithmetic on minutes (fractions allowed), printed short (0.06, 95).
 minutes() { awk "BEGIN { printf \"%g\", $1 }"; }
 
@@ -257,6 +328,11 @@ verify() {
     sha="$(git -C "$repo" rev-parse --verify -q "$sha^{commit}")" || cant_run "cannot resolve $sha in $repo"
     sha7="${sha:0:7}"
     subject="$(git -C "$repo" log -1 --format=%s "$sha")"
+
+    # 3b. The runner image must hold the .NET SDK and Playwright the commit pins. Before the
+    # "Verifying" line, so a refused run (exit 5) never looks started to the requester; the sweep
+    # (step 2) has run, and no container of this run has started.
+    check_image_pins
     echo "Verifying $sha7 $subject"
 
     # 4. A fresh checkout every run, hooks off. --no-hardlinks: the runner can write to the

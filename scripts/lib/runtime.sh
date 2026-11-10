@@ -1,6 +1,7 @@
 # One layer over the container CLIs a verify lane can use: docker, podman and Apple's `container`.
 # Source it, don't run it. The runtime comes from $CHARGEHAND_RUNTIME; every function returns the
-# CLI's exit code. Every object created here carries --label chargehand=1 plus the caller's labels.
+# CLI's exit code, except rt_image_label (3 on the container runtime, 1 on any other failure).
+# Every object created here carries --label chargehand=1 plus the caller's labels.
 # The Apple `container` verbs follow its documentation and are UNVERIFIED until an Apple lane is
 # added (spec: "to check during the build"). Docker and Podman share one flag set.
 . "$(dirname "${BASH_SOURCE[0]}")/harness.sh"
@@ -158,6 +159,20 @@ rt_image_digest() {
     fi
     [ -n "$digest" ] || return 1
     printf '%s\n' "$digest"
+}
+
+# rt_image_label IMAGE KEY: prints the value of IMAGE's label KEY, empty when it is not set (or the
+# image has no labels). Status 1 and nothing printed when the image cannot be inspected (not local)
+# or the output is not a label map; 3 on Apple's container, which is not read: no inspect output from
+# it is recorded here, and a guessed JSON shape is how a check silently passes.
+rt_image_label() {
+    local bin; bin="$(rt_bin)" || return $?
+    [ "$bin" != container ] || return 3
+    local out
+    out="$("$bin" image inspect --format '{{json .Config.Labels}}' "$1")" || return 1
+    jq -r --arg k "$2" 'if . == null then ""
+        elif type == "object" then (.[$k] // "" | tostring)
+        else error("not a label map") end' <<<"$out" 2>/dev/null || return 1
 }
 
 rt_ls_labelled() {

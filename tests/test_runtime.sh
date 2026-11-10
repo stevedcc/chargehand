@@ -148,4 +148,45 @@ test_default_network() {
     assert_eq "docker" "$(CHARGEHAND_RUNTIME=docker rt_default_network)" "bridge"
     assert_eq "container" "$(CHARGEHAND_RUNTIME=container rt_default_network)" "default"
 }
+# rt_image_label IMAGE KEY: the runner image's recorded versions (images/build.sh's LABELs).
+LABELS='{"org.chargehand.runner.dotnet-sdk":"11.0.100-rc.3.26522.148","other":"x"}'
+test_image_label_prints_a_set_label() {
+    fake_rt
+    local rt out rc
+    for rt in podman docker; do
+        : > "$TEST_TMP/rt.log"
+        out="$(CHARGEHAND_RUNTIME=$rt FAKE_RT_OUT_image="$LABELS" rt_image_label r/img@sha256:$D64 org.chargehand.runner.dotnet-sdk)"; rc=$?
+        assert_eq "$rt: value" "$out" "11.0.100-rc.3.26522.148"
+        assert_eq "$rt: rc" "$rc" "0"
+        assert_eq "$rt: inspects the labels" "$(rt_log)" "$rt image inspect --format {{json .Config.Labels}} r/img@sha256:$D64"
+    done
+}
+test_image_label_missing_or_null_is_empty() {
+    fake_rt
+    local out rc
+    out="$(CHARGEHAND_RUNTIME=podman FAKE_RT_OUT_image="$LABELS" rt_image_label x org.chargehand.runner.playwright)"; rc=$?
+    assert_eq "missing label: empty" "$out" ""
+    assert_eq "missing label: rc" "$rc" "0"
+    out="$(CHARGEHAND_RUNTIME=docker FAKE_RT_OUT_image=null rt_image_label x org.chargehand.runner.playwright)"; rc=$?
+    assert_eq "null labels: empty" "$out" ""
+    assert_eq "null labels: rc" "$rc" "0"
+}
+test_image_label_fails_when_the_image_cannot_be_inspected() {
+    fake_rt
+    local out rc
+    out="$(CHARGEHAND_RUNTIME=podman FAKE_RT_RC_image=125 rt_image_label x k 2>/dev/null)"; rc=$?
+    assert_eq "fails, not 3" "$rc" "1"
+    assert_eq "no output" "$out" ""
+    out="$(CHARGEHAND_RUNTIME=podman FAKE_RT_OUT_image='not json' rt_image_label x k 2>/dev/null)"; rc=$?
+    assert_eq "unreadable output fails" "$rc" "1"
+    assert_eq "unreadable output: no output" "$out" ""
+}
+test_image_label_is_not_read_on_apple_container() {
+    fake_rt
+    local out rc
+    out="$(CHARGEHAND_RUNTIME=container FAKE_RT_OUT_image="$LABELS" rt_image_label x org.chargehand.runner.dotnet-sdk)"; rc=$?
+    assert_eq "rc" "$rc" "3"
+    assert_eq "no output" "$out" ""
+    assert_eq "no runtime call" "$(rt_log)" ""
+}
 run_tests

@@ -131,6 +131,13 @@ test_verify_exit_codes_are_told_apart() {
         assert_eq "not recorded" "$(ls "$HARNESS_STATE_DIR/demo/verified" 2>/dev/null | wc -l)" "0"
     done
 }
+test_verify_exit_5_without_a_lane_is_the_launchers() {
+    # Only a lane's 5 means "the runner image does not match the pins"; the local launcher's stays its own.
+    repos; fake_sudo 5; out="$(PATH="$TEST_TMP/bin:$PATH" sync verify main 2>&1)"; rc=$?
+    assert_eq "exit 5 passed through" "$rc" "5"
+    assert_contains "the launcher message" "$out" "could not run the verification (launcher exit 5"
+    assert_not_contains "no lane message" "$out" "runner image"
+}
 # A launcher that answers 3 (busy) for its first N calls, then starts (prints "Verifying", as the
 # real one does only once it holds the lock) and exits with the given code.
 fake_busy_sudo() {
@@ -235,6 +242,11 @@ test_lane_verify_exit_codes_and_wait() {
     assert_contains "says the lane's runtime" "$out" "the lane's container runtime is unavailable"
     fake_lane 10 ""
     PATH="$TEST_TMP/bin:$PATH" sync verify --wait --lane box main >/dev/null 2>&1; assert_eq "failure is final" "$?" "10"
+    fake_lane 5 ""
+    out="$(PATH="$TEST_TMP/bin:$PATH" sync verify --lane box main 2>&1)"; rc=$?
+    assert_eq "image does not match the pins" "$rc" "5"
+    assert_contains "says verify not run" "$out" "chargehand: verify not run: the lane's runner image does not match the commit's pins, or they cannot be read (see above)"
+    assert_not_contains "not unreachable" "$out" "could not reach"
 }
 test_lane_exit_3_and_unreachable_messages_are_lane_specific() {
     fake_lane 3 ""
