@@ -60,7 +60,11 @@ the ref `start-review.sh` printed (also in `review-ref.txt`), `agent/review/<tag
 `verify --lane <name> <ref>` builds and tests the commit in an untrusted runner container on a
 separate machine (a "container verify lane") instead of in the local sandbox. Same exit codes and
 the same rule: only exit 0 allows accept. The run prints the digests of every image it ran on
-(`digests: runner=sha256:... db=sha256:...`); the record says `lane=<name>`.
+(`digests: runner=sha256:... db=sha256:...`); the record says `lane=<name>`. Exit 5 (lanes only)
+is "verify not run": the lane's runner image does not hold the .NET SDK or Playwright version the
+commit pins, or the pins cannot be read. It says nothing about the commit; ask the owner to
+rebuild the runner image with the command the message prints, never accept, and never retry
+before the image is updated.
 
 **What the runner can and cannot do.** It has no credentials and no container-runtime socket. Its
 only host mounts are its own checkout and output folders (plus a per-project package cache). It

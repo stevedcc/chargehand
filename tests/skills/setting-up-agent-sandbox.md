@@ -8,3 +8,4 @@ Classification: rule skipped (knows "don't trust the report", not where code may
 ## Green (with skill):
 - Green run 1: boundaries right (own user, mirror, upload-pack fetch, verify in sandbox, "never ... a throwaway worktree"), but ended "the owner merges or cherry-picks it onto their branch" and "git push mirror --all". Refactor: added the fast-forward-only rule and push-only-the-target line plus a red-flag row.
 - Green run 2 (after refactor): PASS: fast-forward of exactly the verified commits, "never merge, squash or cherry-pick", push only the target branch via agent-sync.sh push.
+- 2026-11-10, brief lane-image-pins: "Container lane" step 1 builds the runner image with `build.sh --from` (SDK-only projects by hand), and a paragraph on keeping it current (exit 5 and the rebuild, the one rebuild after updating, JSONC global.json, Renovate for the base). (Fact change, no new pressure test.)
