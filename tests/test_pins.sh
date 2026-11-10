@@ -48,6 +48,10 @@ test_central_package_version() {
     assert_eq "rc" "$PIN_RC" 0
     assert_eq "version from PackageVersion" "$PIN_OUT" "1.65.0"
 }
+test_single_quoted_attributes() {
+    pin_repo "$TEST_TMP/r" 'tests/a.csproj' "<Project><ItemGroup><PackageReference Include='Microsoft.Playwright' Version='1.64.1' /></ItemGroup></Project>"
+    assert_eq "single quotes" "$(set -u; pins_playwright "$TEST_TMP/r.git" HEAD)" "1.64.1"
+}
 test_version_before_include() {
     pin_repo "$TEST_TMP/r" a.csproj "$(ref '<PackageReference Version="1.64.1" Include="Microsoft.Playwright.MSTest" />')"
     pin pins_playwright "$TEST_TMP/r.git" HEAD

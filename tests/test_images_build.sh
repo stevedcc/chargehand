@@ -223,6 +223,11 @@ test_stderr_names_the_versions_without_from() {
     assert_eq "the line, no from part" "$(grep '^build.sh: .NET SDK' <<<"$ERR")" \
         "build.sh: .NET SDK 11.0.100-rc.3.26522.148, Playwright 1.64.1"
 }
+test_usage_stops_at_the_header() {
+    out="$(bash "$HARNESS_ROOT/images/build.sh" --help 2>&1)"
+    assert_eq "last line is the header's" "$(tail -n 1 <<<"$out")" "  push failed."
+    assert_not_contains "no code" "$out" "set -uo"
+}
 test_usage_shows_the_from_option() {
     fake_rt
     build

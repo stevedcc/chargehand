@@ -202,8 +202,14 @@ check_image_pins() {
     {
         echo "chargehand-lane: the runner image does not match $sha7's pins:"
         printf '%s\n' "${lines[@]}"
-        echo "Rebuild it from the lane's repo:"
-        echo "  images/build.sh runner --from $repo --rev $sha --browsers \"$(_pins_printable "$browsers")\" --tag <registry/repo:tag> --push"
+        if [ -n "$pin_sdk" ] && [ -n "$pin_pw" ]; then
+            echo "Rebuild it from the lane's repo:"
+            echo "  images/build.sh runner --from $repo --rev $sha --browsers \"$(_pins_printable "$browsers")\" --tag <registry/repo:tag> --push"
+        else
+            # build.sh --from needs both pins: name the one the commit has, and leave the other to the owner.
+            echo "Rebuild it (the commit pins only one of the two versions; give both by hand):"
+            echo "  images/build.sh runner --sdk $(_pins_printable "${pin_sdk:-<a .NET SDK version>}") --playwright $(_pins_printable "${pin_pw:-<a Playwright version>}") --browsers \"$(_pins_printable "$browsers")\" --tag <registry/repo:tag> --push"
+        fi
         echo "then set projects.$project.runner_image in lane.json to <registry/repo>@<the digest it prints>."
     } >&2
     exit 5

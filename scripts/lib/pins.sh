@@ -16,9 +16,9 @@ _pins_commit() {
     printf '%s\n' "$sha"
 }
 
-# _pins_printable TEXT: TEXT with control characters (a newline in a path, say) shown as "?", so a
-# message stays one line on the terminal.
-_pins_printable() { printf '%s' "$1" | LC_ALL=C tr '\000-\037\177' '?'; }
+# _pins_printable TEXT: TEXT with control characters (a newline in a path, say; C1 bytes too, as
+# agent_text strips them) shown as "?", so a message stays one line on the terminal.
+_pins_printable() { printf '%s' "$1" | LC_ALL=C tr '\000-\037\177-\237' '?'; }
 
 # pins_sdk REPO REV: global.json's sdk.version at REV.
 pins_sdk() {
@@ -50,7 +50,7 @@ _pins_attr() {
     for name in "$@"; do
         re="[[:space:]]${name}[[:space:]]*=[[:space:]]*(\"([^\"]*)\"|'([^']*)')"
         if [[ "$tag" =~ $re ]]; then
-            printf '%s' "${BASH_REMATCH[2]}${BASH_REMATCH[3]}"
+            printf '%s' "${BASH_REMATCH[2]-}${BASH_REMATCH[3]-}"
             return 0
         fi
     done

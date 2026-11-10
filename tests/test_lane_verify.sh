@@ -552,6 +552,15 @@ $(hint "<the browsers the project's tests need>")"
         rm -rf "$TEST_TMP/seed" "$HOME/lane"
     done
 }
+test_a_project_pinning_only_the_sdk_gets_a_hint_without_from() {
+    # build.sh --from needs both pins, so the hint names the versions instead.
+    PIN_PW='' pinned_setup
+    FAKE_RT_OUT_image="$(labels 11.0.100-rc.2.25502.107 1.64.1 chromium)" verify_split
+    assert_eq "exit" "$RC" "5"
+    assert_contains "versions by hand" "$STDERR" \
+        "  images/build.sh runner --sdk $SDK_PIN --playwright <a Playwright version> --browsers \"chromium\" --tag <registry/repo:tag> --push"
+    assert_not_contains "no --from" "$STDERR" "--from"
+}
 test_only_the_pinned_version_is_compared() {
     PIN_PW='' pinned_setup
     FAKE_RT_OUT_image="$(labels "$SDK_PIN" "" chromium)" verify
