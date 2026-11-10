@@ -36,6 +36,9 @@ test_serve_refuses_without_a_password() {
     out="$(env -u OPENCODE_SERVER_PASSWORD CHARGEHAND_ETC="$TEST_TMP/etc" bash "$SCRIPT" 2>&1)"
     assert_eq "exit 2" "$?" "2"
     assert_contains "says why" "$out" "refusing to serve without OPENCODE_SERVER_PASSWORD"
+    out="$(OPENCODE_SERVER_PASSWORD=x CHARGEHAND_ETC="$TEST_TMP/etc" bash "$SCRIPT" 2>&1)"
+    assert_not_contains "with one it gets past the check" "$out" "refusing to serve"
+    assert_contains "to the next step (no projects here)" "$out" "no projects in"
 }
 test_refuses_group_writable_env() {
     mkdir -p "$TEST_TMP/etc"; echo 'PROJECT=t' > "$TEST_TMP/etc/t.env"; chmod 664 "$TEST_TMP/etc/t.env"

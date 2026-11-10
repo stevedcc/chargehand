@@ -5,7 +5,7 @@
 # Usage: start-server.sh [--no-inhibit]
 #   --no-inhibit   do not wrap the server in gnome-session-inhibit / systemd-inhibit
 # Exit 1 when server_url already answers, 2 on a usage or config problem; otherwise the server's.
-# Linux only (/proc).
+# Linux only (/proc, GNU coreutils: mv -T).
 set -uo pipefail
 # A wrapper that cannot run is reported below; without this, a failed exec ends the script bare.
 shopt -s execfail
@@ -78,9 +78,14 @@ pidf="$HARNESS_STATE_DIR/server.pid"
 { mkdir -p "$HARNESS_STATE_DIR" \
     && ( umask 077; printf '%s\n%s\n' "$$" "$(sed 's/^.*) //' "/proc/$$/stat" | cut -d' ' -f20)" > "$pidf.$$" ) \
     && mv -fT "$pidf.$$" "$pidf"; } || { rm -f "$pidf.$$"; die "could not write $pidf"; }
+# A launcher installed before it refused to serve without a password would start an open server
+# if sudo dropped the password: say so (setup-agent-user.sh installs the current one).
+if [ -r "$launcher" ] && ! grep -q 'refusing to serve without OPENCODE_SERVER_PASSWORD' "$launcher"; then
+    echo "chargehand: warning: $launcher is older than this script: it serves without a password if sudo drops it; re-run setup-agent-user.sh" >&2
+fi
 echo "chargehand: starting the OpenCode server at $url (Ctrl-C stops it)" >&2
 # The password is in the environment of this exec chain (the inhibitor, sudo and the launcher; the
 # sudoers rule keeps OPENCODE_SERVER_PASSWORD for the launcher only), the owner's processes, for the
 # server's lifetime. Never in their argv or a file.
 OPENCODE_SERVER_PASSWORD="$pw" exec "${cmd[@]}" sudo -n -u "$agent" "$launcher" \
-    || die "could not run sudo or the inhibitor (${cmd[0]:-sudo})"
+    || { rm -f "$pidf"; die "could not run sudo or the inhibitor (${cmd[0]:-sudo})"; }

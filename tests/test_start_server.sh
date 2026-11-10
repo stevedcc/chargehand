@@ -160,6 +160,17 @@ test_missing_sudo_is_reported() {
     out="$(run_start --no-inhibit 2>&1)"; rc=$?
     assert_eq "exit 2" "$rc" "2"
     assert_contains "says why" "$out" "could not run sudo"
+    assert_eq "no pid file naming a process that never ran" "$(no_pid_file)" "no"
+}
+test_an_old_installed_launcher_is_reported() {
+    setup_bin; sudo_stub; export SS_PW="$PW"
+    printf '#!/bin/bash\n# a launcher from before the refusal\n' > "$TEST_TMP/old-launcher"
+    write_config "{\"server_url\": \"http://127.0.0.1:1\", \"agent_user\": \"agentx\", \"launcher\": \"$TEST_TMP/old-launcher\", \"server_password\": {\"env\": \"SS_PW\"}}"
+    out="$(run_start --no-inhibit 2>&1)"
+    assert_contains "warns" "$out" "warning: $TEST_TMP/old-launcher is older than this script"
+    printf '#!/bin/bash\necho "refusing to serve without OPENCODE_SERVER_PASSWORD"\n' > "$TEST_TMP/old-launcher"
+    out="$(run_start --no-inhibit 2>&1)"
+    assert_not_contains "a current launcher: no warning" "$out" "is older than this script"
 }
 test_wrapper_form_needs_a_wrapper_and_a_token() {
     setup_bin; sudo_stub; wrap_stub
