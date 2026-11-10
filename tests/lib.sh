@@ -34,6 +34,21 @@ fixture()  { local f="$API_DIR/fixtures/$1$2.json"; mkdir -p "$(dirname "$f")"; 
 requests() { cat "$API_DIR/requests.jsonl" 2>/dev/null; }
 now_ms()   { echo $(( $(date +%s) * 1000 )); }
 
+# pin_repo DIR PATH CONTENT [PATH CONTENT]...: a throwaway repo with those files in one commit,
+# plus a bare clone at DIR.git. Prints nothing; the commit is DIR's HEAD.
+pin_repo() {
+    local dir="$1"; shift
+    git init -q "$dir"
+    while [ "$#" -ge 2 ]; do
+        mkdir -p "$(dirname "$dir/$1")"
+        printf '%s\n' "$2" > "$dir/$1"
+        shift 2
+    done
+    git -C "$dir" add -A
+    git -C "$dir" -c user.name=t -c user.email=t@t commit -q -m files
+    git clone -q --bare "$dir" "$dir.git"
+}
+
 run_tests() {
     local t
     for t in $(declare -F | awk '{print $3}' | grep '^test_'); do

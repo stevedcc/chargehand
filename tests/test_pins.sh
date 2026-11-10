@@ -2,20 +2,6 @@
 . "$HARNESS_ROOT/scripts/lib/harness.sh"
 . "$HARNESS_ROOT/scripts/lib/pins.sh"
 
-# pin_repo DIR PATH CONTENT [PATH CONTENT]...: a throwaway repo with those files in one commit,
-# plus a bare clone at DIR.git. Prints nothing; the commit is DIR's HEAD.
-pin_repo() {
-    local dir="$1"; shift
-    git init -q "$dir"
-    while [ "$#" -ge 2 ]; do
-        mkdir -p "$(dirname "$dir/$1")"
-        printf '%s\n' "$2" > "$dir/$1"
-        shift 2
-    done
-    git -C "$dir" add -A
-    git -C "$dir" -c user.name=t -c user.email=t@t commit -q -m files
-    git clone -q --bare "$dir" "$dir.git"
-}
 # pin FN REPO REV: runs FN in $( ); stdout to PIN_OUT, stderr to PIN_ERR, status to PIN_RC.
 pin() {
     local errf="$TEST_TMP/err"
