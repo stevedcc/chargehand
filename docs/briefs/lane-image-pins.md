@@ -46,7 +46,8 @@ problem (no hint about flags: each caller adds its own). `build.sh` turns 2 into
 death; `verify` turns it into exit 5 (Item 3).
 
 - `pins_sdk REPO REV`:
-  - prints `.sdk.version` of `global.json` at REV;
+  - prints `.sdk.version` of `global.json` at REV; an empty string there returns 2
+    (`global.json at <rev7> has an empty sdk.version`), never an empty pin;
   - status 1, nothing printed, when there is no `global.json` or it has no `sdk.version`;
   - returns 2 with `global.json at <rev7> is not plain JSON` when jq cannot parse it. `dotnet`
     allows comments there; we do not strip them.
@@ -59,7 +60,8 @@ death; `verify` turns it into exit 5 (Item 3).
     so an element split over several lines counts. The package is named by `Include` or `Update`;
     the version by a `Version` or `VersionOverride` attribute, in any attribute order. An element
     without either attribute contributes nothing (with central package management the version is
-    on the `PackageVersion` element in `Directory.Packages.props`).
+    on the `PackageVersion` element in `Directory.Packages.props`). Attribute forms only: a child
+    `<Version>1.64.1</Version>` element counts as no version (so it refuses loudly, below).
   - The package referenced but no version found anywhere: return 2 with
     `<rev7> references Microsoft.Playwright but no version was found` (never a silent "not
     pinned", which would skip the lane's check for exactly the repos that need it).
@@ -167,10 +169,12 @@ up later as a restore, build or browser failure (exit 10, blamed on the commit).
   2. If neither is pinned, skip the check (a project that is not .NET).
   3. If `rt_image_label` returns 3 at any read (the Apple `container` runtime): print
      `chargehand-lane: warning: runtime container: the runner image's versions are not checked`
-     and go on. This comes first: no pull, no exit 5 on that runtime.
+     and go on. This comes before the pull: on that runtime no pull and no image-mismatch exit 5;
+     step 1's unreadable-pin refusal still applies.
   4. Make sure the image is local: `rt_image_label` fails otherwise →
      `rt_pull "$runner_image"` once, then read again. It is pinned by digest, so the pull is
-     exactly the image `rt_run` would pull.
+     exactly the image `rt_run` would pull. A failed pull, or a failed read after it, is
+     `cant_run "could not pull $runner_image"` (exit 1), never the empty-label case below.
   5. Read the image's `org.chargehand.runner.dotnet-sdk` and `org.chargehand.runner.playwright`.
   6. When a pinned version differs from the label, or the label is empty (an image built before
      this brief), print to stderr exactly (values substituted; `<…>` in backticks below stays
@@ -194,9 +198,9 @@ up later as a restore, build or browser failure (exit 10, blamed on the commit).
 - `scripts/lib/runtime.sh`'s header says every function returns the CLI's exit code: note the
   exception (`rt_image_label`, 3 on `container`).
 - `skills/verifying-and-accepting/scripts/agent-sync.sh`, in the exit `case`: add `5)` before
-  `*)`. It prints `chargehand: verify not run: the lane's runner image does not match the
-  commit's pins, or they cannot be read (see above)` and exits 5. It does not depend on `--lane`:
-  only the lane controller exits 5. Today 5 would fall into "could not reach or run the
+  `*)`, for the `--lane` branch only (like `3)` and `4)`, it branches on `$lane`; without
+  `--lane` a 5 stays in the existing launcher message). With `--lane` it prints `chargehand: verify not run: the lane's runner image does not match the
+  commit's pins, or they cannot be read (see above)` and exits 5. Today 5 would fall into "could not reach or run the
   lane controller". Also update the "Same exit codes" header line.
 
 **Tests:**
@@ -204,14 +208,19 @@ up later as a restore, build or browser failure (exit 10, blamed on the commit).
   fake's verb is the first argument, `image`. Throwaway repos come from Item 1's helper.
   - Labels equal to the pins: verify goes on, and `rt.log` shows the restore `run`.
   - SDK differs: exit 5. stderr equals the whole message above with this test's real values
-    (assert the full text, line by line), has no `Playwright:` line, and has no `Verifying` line;
+    (assert the full text, line by line) and has no `Playwright:` line; **stdout** has no
+    `Verifying` line (it is printed on stdout, and `agent-sync.sh` reads both streams);
     `rt.log` has no `run`.
   - Playwright differs: exit 5, and the Playwright line only.
   - No labels (`{}` and `null`): exit 5 with `not recorded` on both lines and the literal
     `<the browsers the project's tests need>` in the hint.
   - A `global.json` with a `//` comment, and two Playwright versions across files: exit 5 with
     `cannot be read` and the pin function's message; no inspect call.
-  - `--help` output includes the exit-5 line (the `usage()` range).
+  - `--help` output includes the exit-5 line and nothing after the header (no `set -uo`, as
+    `test_images_build.sh` already asserts for its own usage).
+  - The pull fails (`FAKE_RT_RC_pull=1`) or the re-read after it fails: exit 1 (`cant_run`,
+    `could not pull <runner_image>`), and no `not recorded` text: a fetch failure is a runtime
+    fault, not an old image.
   - A commit with neither pin: no inspect call, and verify goes on.
   - The image is not local (inspect fails once, then succeeds): exactly one `pull` with the
     pinned reference is logged before the second inspect.
@@ -276,6 +285,8 @@ Renovate, merged by itself. Say so in the report; you cannot observe it.
   - after a project's Renovate bumps its SDK or Playwright, the next lane verify exits 5 with
     the rebuild command, and the owner rebuilds and updates `runner_image`;
   - an image built before this brief has no labels, so expect one rebuild after deploying it;
+  - a project whose `global.json` has comments (legal for `dotnet`) now refuses every lane verify
+    with "pins cannot be read" until the comments go;
   - the Debian base updates through Renovate, and a rebuild picks it up.
 - `skills/verifying-and-accepting/SKILL.md` "Verifying on a lane": exit 5 means "verify not run:
   ask the owner to rebuild the runner image", never "the commit failed".
