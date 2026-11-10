@@ -206,6 +206,16 @@ test_real_selftest_output_passes() {
     assert_contains "headers and indented ok lines pass" "$(out)" "Self-test: 2 ok lines."
     restart_api; finish
 }
+test_only_the_launchers_own_headers_pass() {
+    setup_update
+    for stray in "ERROR:" "FAIL:"; do
+        printf 'Must be blocked:\n  ok    one\n%s\n' "$stray" > "$TEST_TMP/selftest"
+        run_update 0.01; finish
+        assert_eq "$stray: exit 1" "$RC" "1"
+        assert_contains "$stray: printed" "$(out)" "$stray"
+        assert_not_contains "$stray: not asked to stop" "$(out)" "Stop the server"
+    done
+}
 test_versions_and_already_current() {
     setup_update; failing_selftest
     run_update 0.01; finish

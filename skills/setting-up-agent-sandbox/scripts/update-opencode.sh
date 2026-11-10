@@ -101,11 +101,12 @@ else echo "OpenCode upgraded: $before -> $after"; fi
 
 # 4. The sandbox must still hold before the server goes down: a FAIL line is a broken boundary.
 st="$(sudo -n -u "$agent" "$launcher" --selftest --project "$project" 2>&1)"; rc=$?
-# The launcher prints section headers ("Must be blocked:") and indented "ok" or "FAIL" lines. An ok
-# line is "ok" alone or "ok " and more ("okay ..." is not); at least one must come, and any line
-# that is neither an ok line nor a header (a FAIL, a stray message) stops it.
+# The launcher prints its section headers (sandbox.sh's SELFTEST: exactly these five) and indented
+# "ok" or "FAIL" lines. An ok line is "ok" alone or "ok " and more ("okay ..." is not); at least
+# one must come, and any other line (a FAIL, "ERROR:", a stray message) stops it.
 okre='^ *ok( |$)'
-bad="$(grep -v -E -e "$okre" -e '^[A-Z][A-Za-z ]*:$' -e '^$' <<<"$st")"; oks="$(grep -c -E "$okre" <<<"$st")"
+hdr='^(Must be blocked|Must work|Harness files|Project|Verify output filter):$'
+bad="$(grep -v -E -e "$okre" -e "$hdr" -e '^$' <<<"$st")"; oks="$(grep -c -E "$okre" <<<"$st")"
 if [ "$rc" -ne 0 ] || [ -n "$bad" ] || [ "$oks" -eq 0 ]; then
     [ -z "$bad" ] || agent_text <<<"$bad"
     [ "$oks" -gt 0 ] && why="exit $rc" || why="exit $rc, no ok lines"
@@ -144,7 +145,7 @@ echo "The server is answering again."
 trap - INT TERM
 # It must refuse a request without credentials: the launcher refuses to serve without a password,
 # but an older installed launcher does not, and then the server would be open to every local user.
-code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$url/api/session")"
+code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 --url "$url/api/session")"
 if [ "$code" != 401 ]; then
     echo "chargehand: the server at $url answers without a password (HTTP $code to a request with no credentials): stop it, re-run setup-agent-user.sh (launcher and sudoers), then start-server.sh" >&2
     exit 1
