@@ -2,5 +2,11 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "packageRules": [
+    { "matchManagers": ["dockerfile"], "matchFileNames": ["images/**"], "pinDigests": true },
+    { "matchManagers": ["dockerfile"], "matchFileNames": ["images/**"], "matchUpdateTypes": ["digest", "pinDigest"],
+      "automerge": true, "automergeType": "pr", "ignoreTests": true,
+      "description": "ignoreTests: this repo has no CI, so a PR would otherwise never be green. A base digest bump is only built when the owner runs images/build.sh, and that build is its test." }
   ]
 }

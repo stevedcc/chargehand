@@ -247,4 +247,14 @@ test_containerfile_labels_come_from_the_args_after_them() {
     assert_eq "LABEL after the last ARG" "$(( ${label_line:-0} > ${last_arg:-999} ))" "1"
 }
 
+# Renovate pins the base by digest (renovate.json): the FROM line must name a tag, with or without
+# "@sha256:<digest>", so its pin PR (and later digest PRs) keep this suite green.
+test_containerfile_from_names_a_tag_with_or_without_a_digest() {
+    local cf="$HARNESS_ROOT/images/runner/Containerfile" from
+    from="$(grep -E '^FROM[[:space:]]' "$cf")"
+    assert_eq "one FROM" "$(grep -c . <<<"$from")" "1"
+    assert_eq "a tag, optionally @sha256" \
+        "$(grep -cE '^FROM [a-z0-9.-]+(/[a-z0-9._-]+)+:[A-Za-z0-9_][A-Za-z0-9._-]*(@sha256:[0-9a-f]{64})?$' <<<"$from")" "1"
+}
+
 run_tests
