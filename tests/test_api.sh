@@ -51,6 +51,16 @@ test_server_user_with_a_line_break_is_refused_before_curl() {
     assert_contains "says why" "$out" "server_user contains a line break"
     assert_eq "nothing sent" "$(requests)" ""
 }
+test_server_url_is_never_read_as_a_curl_option() {
+    start_api; fixture GET /api/agent '{"data": []}'
+    # As a curl option, "-K<file>" would read that file as curl config: here a URL and an output file.
+    printf 'url = "%s/api/agent"\noutput = "%s/pwned"\n' "$API_URL" "$TEST_TMP" > "$TEST_TMP/evil.conf"
+    write_config "{\"server_url\": \"-K$TEST_TMP/evil.conf\", \"server_password\": {\"env\": \"TEST_SERVER_PASSWORD\"}}"
+    (oc_api GET "" >/dev/null 2>&1)
+    assert_eq "oc_api: not read as config" "$([ -e "$TEST_TMP/pwned" ] && echo written || echo none)" "none"
+    rm -f "$TEST_TMP/pwned"; oc_answers >/dev/null 2>&1
+    assert_eq "oc_answers: not read as config" "$([ -e "$TEST_TMP/pwned" ] && echo written || echo none)" "none"
+}
 test_wrong_password_and_404_fail() {
     start_api; export TEST_SERVER_PASSWORD=wrong
     (oc_api GET /api/agent >/dev/null 2>&1); assert_eq "401 fails" "$?" "22"

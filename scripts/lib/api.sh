@@ -3,7 +3,8 @@
 # oc_api METHOD PATH [BODY_FILE]: prints the response body; returns curl's status (22 for a
 # non-2xx answer, 7 when the server is down). The password comes from config.json's
 # "server_password" in one of four forms (env, file, command, wrapper). In the first three it
-# reaches curl on stdin as a config line, never on a command line; "wrapper" hands the call to a
+# reaches curl on stdin as a config line, never on a command line (server_url goes in with --url,
+# so a value starting with "-" is never read as an option); "wrapper" hands the call to a
 # token-substituting tool (e.g. a secret manager's "run" command), which then owns that exposure.
 # Wrapper calls queue on one lock; HARNESS_API_LOCK_WAIT (seconds, default 120) bounds the wait and
 # a timeout returns 75 (watch.sh sets it below its poll interval).
@@ -23,14 +24,14 @@ oc_api() {
         # Remove once tswap serialises its own ykman calls.
         mkdir -p "$HARNESS_STATE_DIR"
         ( flock -w "${HARNESS_API_LOCK_WAIT:-120}" 9 || { echo "chargehand: timed out waiting for the API lock" >&2; exit 75; }
-          "${wrap[@]}" curl "${args[@]}" -u "$user:$tok" "$url" ) 9>"$HARNESS_STATE_DIR/api.lock"
+          "${wrap[@]}" curl "${args[@]}" -u "$user:$tok" --url "$url" ) 9>"$HARNESS_STATE_DIR/api.lock"
         return
     fi
     # server_password_value refuses line breaks, which would end this config line.
     pw="$(server_password_value)" || exit 2
     pw="${pw//\\/\\\\}"; pw="${pw//\"/\\\"}"
     user="${user//\\/\\\\}"; user="${user//\"/\\\"}"
-    printf 'user = "%s:%s"\n' "$user" "$pw" | curl -K - "${args[@]}" "$url"
+    printf 'user = "%s:%s"\n' "$user" "$pw" | curl -K - "${args[@]}" --url "$url"
 }
 
 # _server_password_json: config.json's "server_password" object, compact; dies when it is missing.
@@ -83,7 +84,7 @@ server_password_value() {
 # credentials. Used to tell "not running" from "running".
 oc_answers() {
     local url; url="$(config_get server_url http://127.0.0.1:4096)" || return 2
-    curl -s -o /dev/null --max-time 5 "$url" && return 0
+    curl -s -o /dev/null --max-time 5 --url "$url" && return 0
     return 1
 }
 
