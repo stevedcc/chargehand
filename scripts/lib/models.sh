@@ -72,21 +72,12 @@ models_render() {
     ' "$HARNESS_CONFIG_DIR/models.json"
 }
 
-# models_busy PROVIDER: how many of PROVIDER's sessions are busy: updated in the last
-# MODELS_BUSY_WINDOW_MIN minutes (20; a working session updates constantly), no "idle" message since
-# its last prompt (the test watch.sh uses), and its newest reply not an error (a session that died on
-# a 402 or a quota error holds no capacity). Needs api.sh.
+# models_busy PROVIDER: how many of PROVIDER's sessions are busy (oc_busy_session_ids's rules).
+# Sessions whose activity cannot be read are not counted, and that alone never fails it (a capacity
+# hint; the callers run under set -euo pipefail). A config error that dies is still fatal, on
+# purpose. Needs api.sh.
 models_busy() {
-    local provider="$1" since s n=0
-    since=$(( ($(date +%s) - ${MODELS_BUSY_WINDOW_MIN:-20} * 60) * 1000 ))
-    while read -r s; do
-        [ -n "$s" ] || continue
-        oc_api GET "/api/session/$s/message" 2>/dev/null | oc_newest_first | jq -e '.data | (map(.type) | index("user")) as $u
-            | .[0:$u] | (map(select(.type == "idle")) | length == 0)
-              and ((map(select(.type == "assistant")) | first // {} | .error) == null)' >/dev/null && n=$((n + 1))
-    done < <(oc_sessions | jq -r --arg p "$provider" --argjson t "$since" \
-        '.data[]? | select(.model.providerID == $p and (.time.updated // 0) >= $t) | .id')
-    echo "$n"
+    { oc_busy_session_ids "$1" || true; } | awk 'END { print NR }'
 }
 
 # models_pick EFFECTIVE ROLE [--allow-paid]: the role's first live model whose provider is under its

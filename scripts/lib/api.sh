@@ -3,20 +3,65 @@
 # oc_api METHOD PATH [BODY_FILE]: prints the response body; returns curl's status (22 for a
 # non-2xx answer, 7 when the server is down). The password comes from config.json's
 # "server_password" in one of four forms (env, file, command, wrapper). In the first three it
-# reaches curl on stdin as a config line, never on a command line; "wrapper" hands the call to a
+# reaches curl on stdin as a config line, never on a command line (server_url goes in with --url,
+# so a value starting with "-" is never read as an option); "wrapper" hands the call to a
 # token-substituting tool (e.g. a secret manager's "run" command), which then owns that exposure.
 # Wrapper calls queue on one lock; HARNESS_API_LOCK_WAIT (seconds, default 120) bounds the wait and
 # a timeout returns 75 (watch.sh sets it below its poll interval).
 oc_api() {
-    local method="$1" path="$2" body="${3:-}" url user form kind pw
+    local method="$1" path="$2" body="${3:-}" url user kind pw
     url="$(config_get server_url http://127.0.0.1:4096)$path" || return 2
     user="$(config_get server_user opencode)" || return 2
+    # The user goes into curl's config line too (below), escaped like the password.
+    [[ "$user" != *[$'\n\r']* ]] || die "config.json: server_user contains a line break"
     local args=(-sS -f --max-time 30 -X "$method" -H 'Content-Type: application/json')
     [ -n "$body" ] && args+=(--data-binary "@$body")
+    kind="$(server_password_form)" || exit 2
+    if [ "$kind" = wrapper ]; then
+        local wrap tok; mapfile -t wrap < <(_server_password_json | jq -r '.wrapper[]'); tok="$(_server_password_json | jq -r .token)"
+        # TEMPORARY workaround for tswap (stevedcc/TokenSwap#173): overlapping unlocks make
+        # `ykman list` return no serials ("No YubiKey detected"), so callers queue on a lock.
+        # Remove once tswap serialises its own ykman calls.
+        mkdir -p "$HARNESS_STATE_DIR"
+        ( flock -w "${HARNESS_API_LOCK_WAIT:-120}" 9 || { echo "chargehand: timed out waiting for the API lock" >&2; exit 75; }
+          "${wrap[@]}" curl "${args[@]}" -u "$user:$tok" --url "$url" ) 9>"$HARNESS_STATE_DIR/api.lock"
+        return
+    fi
+    # server_password_value refuses line breaks, which would end this config line.
+    pw="$(server_password_value)" || exit 2
+    pw="${pw//\\/\\\\}"; pw="${pw//\"/\\\"}"
+    user="${user//\\/\\\\}"; user="${user//\"/\\\"}"
+    printf 'user = "%s:%s"\n' "$user" "$pw" | curl -K - "${args[@]}" --url "$url"
+}
+
+# _server_password_json: config.json's "server_password" object, compact; dies when it is missing.
+_server_password_json() {
+    local form
     form="$(jq -c '.server_password // empty' "$HARNESS_CONFIG_DIR/config.json" 2>/dev/null)"
     [ -n "$form" ] || die "config.json: missing key \"server_password\""
+    printf '%s\n' "$form"
+}
+
+# server_password_form: which form "server_password" uses: env, file, command or wrapper (wrapper
+# wins when an object names several). Dies on anything else.
+server_password_form() {
+    local form kind
+    form="$(_server_password_json)" || exit 2
     kind="$(jq -r 'if has("wrapper") then "wrapper" elif has("env") then "env"
                    elif has("file") then "file" elif has("command") then "command" else "" end' <<<"$form")"
+    [ -n "$kind" ] || die "server_password: use one of env, file, command, wrapper"
+    printf '%s\n' "$kind"
+}
+
+# server_password_value: the password itself on stdout (no newline added), for the env, file and command forms. Callers
+# capture it into a variable and hand it on without a command line (curl's stdin, an environment
+# variable). The wrapper form never yields the value to Chargehand, so it dies here. A value with a
+# line break (CR or LF) dies too: oc_api's curl config would end the user line there and read the
+# rest as more options. (A file's or a command's final newlines are dropped first, as $(...) does.)
+server_password_value() {
+    local form kind pw
+    kind="$(server_password_form)" || exit 2
+    form="$(_server_password_json)" || exit 2
     case "$kind" in
         env)
             local name; name="$(jq -r .env <<<"$form")"
@@ -29,19 +74,18 @@ oc_api() {
         command)
             local cmd; mapfile -t cmd < <(jq -r '.command[]' <<<"$form")
             pw="$("${cmd[@]}")" || die "server_password: the command failed" ;;
-        wrapper)
-            local wrap tok; mapfile -t wrap < <(jq -r '.wrapper[]' <<<"$form"); tok="$(jq -r .token <<<"$form")"
-            # TEMPORARY workaround for tswap (stevedcc/TokenSwap#173): overlapping unlocks make
-            # `ykman list` return no serials ("No YubiKey detected"), so callers queue on a lock.
-            # Remove once tswap serialises its own ykman calls.
-            mkdir -p "$HARNESS_STATE_DIR"
-            ( flock -w "${HARNESS_API_LOCK_WAIT:-120}" 9 || { echo "chargehand: timed out waiting for the API lock" >&2; exit 75; }
-              "${wrap[@]}" curl "${args[@]}" -u "$user:$tok" "$url" ) 9>"$HARNESS_STATE_DIR/api.lock"
-            return ;;
-        *) die "server_password: use one of env, file, command, wrapper" ;;
+        wrapper) die "server_password: the wrapper form has no value to read (the wrapper substitutes it into a command)" ;;
     esac
-    pw="${pw//\\/\\\\}"; pw="${pw//\"/\\\"}"
-    printf 'user = "%s:%s"\n' "$user" "$pw" | curl -K - "${args[@]}" "$url"
+    [[ "$pw" != *[$'\n\r']* ]] || die "server_password: the value contains a line break"
+    printf '%s' "$pw"
+}
+
+# oc_answers: whether server_url answers HTTP at all (any status, a 401 included); sends no
+# credentials. Used to tell "not running" from "running".
+oc_answers() {
+    local url; url="$(config_get server_url http://127.0.0.1:4096)" || return 2
+    curl -s -o /dev/null --max-time 5 --url "$url" && return 0
+    return 1
 }
 
 # oc_launch DIR: create the session from DIR/session-request.json, send DIR/launch.txt to it, and
@@ -77,8 +121,33 @@ oc_sessions() {
     return "$rc"
 }
 
+# oc_busy_session_ids [PROVIDER]: the ids of the busy sessions, one per line: updated in the last
+# MODELS_BUSY_WINDOW_MIN minutes (20; a working session updates constantly), no "idle" message since
+# its last prompt (the test watch.sh uses), and its newest reply not an error (a session that died on
+# a 402 or a quota error holds no capacity). PROVIDER limits it to that provider's sessions; without
+# it every session counts. Status 2 when the session list or a recent session's messages could not
+# be read: the ids printed are then incomplete (a caller that must not miss one treats that as busy).
+oc_busy_session_ids() {
+    local provider="${1:-}" since s list msgs st rc=0
+    since=$(( ($(date +%s) - ${MODELS_BUSY_WINDOW_MIN:-20} * 60) * 1000 ))
+    list="$(oc_sessions)" || return 2
+    while read -r s; do
+        [ -n "$s" ] || continue
+        msgs="$(oc_api GET "/api/session/$s/message" 2>/dev/null)" || { rc=2; continue; }
+        # jq -e: 0 busy, 1 not busy; anything else (a body that is not a message list) is unknown.
+        # "|| st=$?" keeps a failure from ending a caller that runs under set -e.
+        st=0
+        oc_newest_first <<<"$msgs" 2>/dev/null | jq -e '.data | (map(.type) | index("user")) as $u
+            | .[0:$u] | (map(select(.type == "idle")) | length == 0)
+              and ((map(select(.type == "assistant")) | first // {} | .error) == null)' >/dev/null 2>&1 || st=$?
+        case $st in 0) echo "$s" ;; 1) ;; *) rc=2 ;; esac
+    done < <(jq -r --arg p "$provider" --argjson t "$since" \
+        '.data[]? | select(($p == "" or .model.providerID == $p) and (.time.updated // 0) >= $t) | .id' <<<"$list")
+    return "$rc"
+}
+
 # oc_newest_first: filter a message-list response ({data: [...]}) to newest-first by time.created
-# (stable: messages without a time keep their order). The watcher and models_busy read ".data[0]"
+# (stable: messages without a time keep their order). The watcher and oc_busy_session_ids read ".data[0]"
 # and "everything before the last prompt" and so must not depend on the order the server answers in
 # (not verified against a real server).
 oc_newest_first() {

@@ -62,6 +62,12 @@ case "${1:-}" in
     "") ;;
     *) echo "Usage: $0 [--selftest --project <name> | --verify --project <name> <sha>]" >&2; exit 2 ;;
 esac
+# Without a password OpenCode would serve unauthenticated to every local user, the agent included:
+# refuse (sudo drops it, for instance, when the sudoers env_keep rule names another launcher path).
+if [ "$mode" = serve ] && [ -z "${OPENCODE_SERVER_PASSWORD:-}" ]; then
+    echo "chargehand-sandbox: refusing to serve without OPENCODE_SERVER_PASSWORD (start the server with start-server.sh; check the sudoers env_keep rule names this launcher)" >&2
+    exit 2
+fi
 
 # Collect the projects this run mounts: one for selftest/verify, every configured one for serve.
 clones=() mirrors=() ro=() rw=() paths=() envs=()
@@ -273,11 +279,8 @@ verify)
         -- bash -c "$VERIFY" 8>&-
     exit $? ;;
 serve)
-    if [ -n "$password" ]; then
-        exec 3<<<"$password"; unset password
-        exec bwrap "${args[@]}" -- bash -c \
-            'IFS= read -r OPENCODE_SERVER_PASSWORD <&3; exec 3<&-; export OPENCODE_SERVER_PASSWORD; exec "$@"' \
-            serve "$HOME/.opencode/bin/opencode" serve --hostname 127.0.0.1 --port 4096
-    fi
-    exec bwrap "${args[@]}" -- "$HOME/.opencode/bin/opencode" serve --hostname 127.0.0.1 --port 4096 ;;
+    exec 3<<<"$password"; unset password
+    exec bwrap "${args[@]}" -- bash -c \
+        'IFS= read -r OPENCODE_SERVER_PASSWORD <&3; exec 3<&-; export OPENCODE_SERVER_PASSWORD; exec "$@"' \
+        serve "$HOME/.opencode/bin/opencode" serve --hostname 127.0.0.1 --port 4096 ;;
 esac

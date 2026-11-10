@@ -1,5 +1,5 @@
 # Helpers for the harness's bash tests. A test file sources this, defines test_* functions and
-# ends with `run_tests`. Each test gets a throwaway HOME and config (setup_home).
+# ends with `run_tests`; an optional after_each function runs after each test. Each test gets a throwaway HOME and config (setup_home).
 set -uo pipefail
 HARNESS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FAILS=0
@@ -55,6 +55,7 @@ run_tests() {
         echo "$t"
         setup_home
         "$t"
+        declare -F after_each >/dev/null && after_each
         declare -F stop_api >/dev/null && stop_api
         rm -rf "$TEST_TMP"
     done
