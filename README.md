@@ -241,16 +241,45 @@ Once per machine; steps 4 and 5 again for each further project.
    sudo -n -u <agent> /usr/local/bin/chargehand-sandbox --selftest --project <name>
    ```
    Every line must say `ok`. A `FAIL` is a hole in the sandbox, not noise.
-7. **Start the OpenCode server** in the sandbox, with its password from wherever you keep secrets:
+7. **Start the OpenCode server** in the sandbox, in a terminal you keep open:
    ```
-   OPENCODE_SERVER_PASSWORD="$(secret-tool lookup service opencode)" sudo -n -u <agent> /usr/local/bin/chargehand-sandbox
+   bash <plugin>/skills/setting-up-agent-sandbox/scripts/start-server.sh
    ```
+   It takes the password from `config.json`'s `server_password`, in any of its forms (a secret
+   manager's wrapper too, e.g. `tswap run`), and hands it on in the environment of the processes
+   that run the server (the inhibitor, `sudo` and the launcher: yours, for the server's lifetime),
+   never in an argument or a file. The wrapper form has one exception: the script runs again under
+   the wrapper with the value as an argument, so it is in the process list for the moment that run
+   takes to start the server (a few config reads), as it is in `curl`'s for each API call in that
+   form. A value Chargehand reads (env, file or command form) is refused if it has a line break.
+   The launcher refuses to serve without a password, so a sudoers rule that drops it fails loudly
+   instead of starting an open server (re-run setup after updating Chargehand to install that
+   launcher). The script also keeps the machine from suspending
+   while the server runs (`gnome-session-inhibit`, else `systemd-inhibit`; `--no-inhibit` skips
+   that). Ctrl-C stops the server.
 8. **Run a brief.** Ask Claude to write one (`writing-briefs`) and run it (`running-briefs`); it
    launches, watches, answers, verifies (`verifying-and-accepting`) and writes the retro
    (`writing-retros`).
 
 Re-run step 4 (and 6) after changing a project's config, `implementer/` or the launcher: agents
 only ever see the root-owned installed copies.
+
+## Updating OpenCode
+
+```
+bash <plugin>/skills/setting-up-agent-sandbox/scripts/update-opencode.sh --project <name>
+```
+
+It refuses while sessions are busy (`--force` goes on anyway), upgrades OpenCode as the agent
+user (`sudo -iu`: one password prompt, and the agent's own login shell and `opencode` binary run,
+as the agent), runs the sandbox self-test and stops before the server is touched unless it prints
+`ok` lines and nothing else, checks for busy sessions again, stops the server that
+`start-server.sh` started (or asks you to press Ctrl-C in its terminal), waits for you to run
+`start-server.sh` again, and then prints the project's model allocation against the new server.
+It refuses too when it cannot read every recent session's activity, and after the restart it
+checks that the server refuses a request without credentials. Interrupted after the stop, it says
+how to start the server again. A server started by an older `start-server.sh` (its `server.pid`
+not mode 600) is not signalled: you get the Ctrl-C prompt once. Linux only.
 
 ## Tests
 
