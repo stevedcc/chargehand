@@ -124,7 +124,8 @@ test_real_image_not_matching_the_pins_exits_5() {
     DEMO_GLOBAL_JSON='{ "sdk": { "version": "10.0.100" } }' real_setup; verify
     assert_eq "exit" "$RC" "5"
     assert_contains "the label read from the real image" "$OUT" "  .NET SDK: image $DEMO_SDK, commit 10.0.100 (global.json)"
-    assert_contains "the browsers label in the hint" "$OUT" "--rev $SHA --browsers \"$DEMO_BROWSERS\" --tag <registry/repo:tag> --push"
+    # The demo pins only the SDK, so the hint gives the versions by hand (not --from).
+    assert_contains "the browsers label in the hint" "$OUT" "--sdk 10.0.100 --playwright <a Playwright version> --browsers \"$DEMO_BROWSERS\" --tag <registry/repo:tag> --push"
     assert_not_contains "Playwright not pinned, not listed" "$OUT" "Playwright:"
     assert_not_contains "never looked started" "$OUT" "Verifying"
     assert_clean
