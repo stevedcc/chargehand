@@ -76,13 +76,28 @@ The Docker path is fake-tested only (no real Docker run yet); on Docker the runn
 
 Owner steps (sudo, on the lane machine): the dedicated user with rootless Podman (lingering, so
 its socket is up without a login), the RAM, a registry login to push the runner image. Then:
-1. Build and push the runner image: `images/build.sh` (`--platforms linux/amd64` when every lane is x86; the emulated arm64 build takes long); put its digest and the services' digests in
+1. Build and push the runner image from the project's own pins:
+   `images/build.sh runner --from <project repo> --browsers "<list>" --tag <registry/repo:tag> --push`
+   (`--rev <rev>` for another commit than HEAD; `--platforms linux/amd64` when every lane is x86,
+   the emulated arm64 build takes long). It reads the .NET SDK from `global.json` and the
+   `Microsoft.Playwright` version from the project files, and the image records both as labels.
+   A project that pins only the SDK passes `--sdk` and `--playwright` by hand instead (`--from`
+   needs both). Put its digest and the services' digests in
    `~/.config/chargehand/lane.json` (shape: `examples/lane.json`, whose all-zero digests are
    placeholders that pass `lane_check` and run nothing).
 2. As the lane user, no sudo: `bash <plugin>/skills/setting-up-agent-sandbox/scripts/setup-lane.sh --project <name>`.
    It checks `lane.json` and the runtime, installs `~/.local/bin/chargehand-lane`, creates the
    bare repo and work folder, and prints the `lanes.json` entry. Exit 2 is a config problem
    (read its message), 4 the runtime does not answer. Re-run after updating Chargehand.
+
+Keeping the image current: when a project's Renovate bumps its SDK or Playwright, the next lane
+verify of such a commit exits 5 before any container starts, names the version that differs and
+prints the `build.sh --from` command to rebuild; the owner rebuilds, pushes and updates
+`runner_image`. An image built before images carried their versions has no labels, so expect one
+rebuild after updating Chargehand. A `global.json` with comments (legal for `dotnet`) makes every
+lane verify of that project refuse with "pins cannot be read" until the comments go. The Debian
+base updates through Renovate in Chargehand (digest pins, merged by themselves); a rebuild picks
+it up.
 3. On the requester: add that entry to `lanes.json` and `<lane-user>@<box>` to `~/.ssh/config`.
 
 ## Red flags

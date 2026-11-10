@@ -122,4 +122,144 @@ test_apple_container_is_refused() {
     assert_contains "message" "$ERR" "multi-architecture builds need docker or podman"
 }
 
+# --from: the versions come from a project's repo (pin_repo in tests/lib.sh).
+GLOBAL='{ "sdk": { "version": "11.0.100-rc.3.26522.148", "rollForward": "latestFeature" } }'
+E2E='<Project><ItemGroup>
+    <PackageReference Include="Deque.AxeCore.Playwright" Version="4.14.0" />
+    <PackageReference Include="Microsoft.Playwright.NUnit" Version="1.64.1" />
+</ItemGroup></Project>'
+FROM_ARGS=(--browsers chromium --tag "$TAG")
+rev7() { local s; s="$(git -C "$1" rev-parse "${2:-HEAD}")"; printf '%s\n' "${s:0:7}"; }
+
+test_from_passes_the_repos_versions() {
+    fake_rt
+    pin_repo "$TEST_TMP/p" global.json "$GLOBAL" e2e/e2e.csproj "$E2E"
+    FAKE_RT_OUT_images="$LOCAL_LIST" build runner --from "$TEST_TMP/p.git" "${FROM_ARGS[@]}"
+    assert_eq "exit" "$RC" "0"
+    assert_contains "sdk from global.json" "$(rt_log)" "--build-arg DOTNET_SDK_VERSION=11.0.100-rc.3.26522.148 "
+    assert_contains "playwright from the csproj" "$(rt_log)" "--build-arg PLAYWRIGHT_VERSION=1.64.1 "
+    assert_contains "stderr names both, and where from" "$ERR" \
+        "build.sh: .NET SDK 11.0.100-rc.3.26522.148, Playwright 1.64.1 (from $TEST_TMP/p.git at $(rev7 "$TEST_TMP/p.git"))"
+}
+test_rev_picks_an_older_commit() {
+    fake_rt
+    pin_repo "$TEST_TMP/p" global.json "$GLOBAL" e2e/e2e.csproj "$E2E"
+    local old; old="$(git -C "$TEST_TMP/p" rev-parse HEAD)"
+    printf '%s\n' '{ "sdk": { "version": "11.0.101" } }' > "$TEST_TMP/p/global.json"
+    sed -i 's/1\.64\.1/1.65.0/' "$TEST_TMP/p/e2e/e2e.csproj"
+    git -C "$TEST_TMP/p" -c user.name=t -c user.email=t@t commit -q -am bump
+    FAKE_RT_OUT_images="$LOCAL_LIST" build runner --from "$TEST_TMP/p" --rev "$old" "${FROM_ARGS[@]}"
+    assert_eq "exit" "$RC" "0"
+    assert_contains "older sdk" "$(rt_log)" "--build-arg DOTNET_SDK_VERSION=11.0.100-rc.3.26522.148 "
+    assert_contains "older playwright" "$(rt_log)" "--build-arg PLAYWRIGHT_VERSION=1.64.1 "
+    assert_contains "stderr names the older commit" "$ERR" "(from $TEST_TMP/p at ${old:0:7})"
+    : > "$TEST_TMP/rt.log"
+    FAKE_RT_OUT_images="$LOCAL_LIST" build runner --from "$TEST_TMP/p" "${FROM_ARGS[@]}"
+    assert_contains "HEAD by default" "$(rt_log)" "--build-arg DOTNET_SDK_VERSION=11.0.101 --build-arg PLAYWRIGHT_VERSION=1.65.0 "
+}
+test_from_with_sdk_or_playwright_exits_2() {
+    fake_rt
+    pin_repo "$TEST_TMP/p" global.json "$GLOBAL" e2e/e2e.csproj "$E2E"
+    build runner --from "$TEST_TMP/p.git" --sdk 11.0.100 "${FROM_ARGS[@]}"
+    assert_eq "with --sdk" "$RC" "2"
+    assert_contains "message" "$ERR" "--from reads the versions; do not pass --sdk or --playwright with it"
+    build runner --playwright 1.64.1 --from "$TEST_TMP/p.git" "${FROM_ARGS[@]}"
+    assert_eq "with --playwright, before --from" "$RC" "2"
+    assert_contains "message" "$ERR" "--from reads the versions; do not pass --sdk or --playwright with it"
+    assert_eq "no runtime call" "$(rt_log)" ""
+}
+test_rev_without_from_exits_2() {
+    fake_rt
+    build "${ARGS[@]}" --rev HEAD
+    assert_eq "exit" "$RC" "2"
+    assert_contains "usage" "$ERR" "Usage: images/build.sh runner"
+    assert_eq "no runtime call" "$(rt_log)" ""
+}
+test_repo_without_pins_dies() {
+    fake_rt
+    pin_repo "$TEST_TMP/p" e2e/e2e.csproj "$E2E"
+    build runner --from "$TEST_TMP/p.git" "${FROM_ARGS[@]}"
+    assert_eq "no global.json: exit" "$RC" "2"
+    assert_contains "no global.json: message" "$ERR" \
+        "$TEST_TMP/p.git at $(rev7 "$TEST_TMP/p.git") pins no .NET SDK (global.json sdk.version)"
+    pin_repo "$TEST_TMP/q" global.json "$GLOBAL"
+    build runner --from "$TEST_TMP/q.git" "${FROM_ARGS[@]}"
+    assert_eq "no playwright: exit" "$RC" "2"
+    assert_contains "no playwright: message" "$ERR" \
+        "$TEST_TMP/q.git at $(rev7 "$TEST_TMP/q.git") pins no Microsoft.Playwright version"
+    assert_eq "no runtime call" "$(rt_log)" ""
+}
+test_unreadable_pins_die_with_the_hint() {
+    fake_rt
+    pin_repo "$TEST_TMP/p" global.json '{ // a comment
+  "sdk": { "version": "11.0.100" } }' e2e/e2e.csproj "$E2E"
+    build runner --from "$TEST_TMP/p.git" "${FROM_ARGS[@]}"
+    assert_eq "commented global.json: exit" "$RC" "2"
+    assert_contains "pin message plus hint" "$ERR" \
+        "global.json at $(rev7 "$TEST_TMP/p.git") is not plain JSON (pass --sdk / --playwright by hand)"
+    pin_repo "$TEST_TMP/q" global.json "$GLOBAL" a.csproj "$E2E" \
+        b.csproj '<Project><ItemGroup><PackageReference Include="Microsoft.Playwright" Version="1.63.0" /></ItemGroup></Project>'
+    build runner --from "$TEST_TMP/q.git" "${FROM_ARGS[@]}"
+    assert_eq "two playwright versions: exit" "$RC" "2"
+    assert_contains "differ message plus hint" "$ERR" \
+        "Playwright versions differ at $(rev7 "$TEST_TMP/q.git"): 1.64.1 (a.csproj), 1.63.0 (b.csproj) (pass --sdk / --playwright by hand)"
+    build runner --from "$TEST_TMP/q.git" --rev nosuchrev "${FROM_ARGS[@]}"
+    assert_eq "unknown rev: exit" "$RC" "2"
+    assert_contains "unknown rev: message" "$ERR" "\"nosuchrev\" is not a commit in $TEST_TMP/q.git (pass --sdk / --playwright by hand)"
+    assert_eq "no runtime call" "$(rt_log)" ""
+}
+test_pinned_values_get_the_version_checks() {
+    fake_rt
+    pin_repo "$TEST_TMP/p" global.json '{ "sdk": { "version": "banana" } }' e2e/e2e.csproj "$E2E"
+    build runner --from "$TEST_TMP/p.git" "${FROM_ARGS[@]}"
+    assert_eq "exit" "$RC" "2"
+    assert_contains "message" "$ERR" 'bad SDK version "banana"'
+    assert_eq "no runtime call" "$(rt_log)" ""
+}
+test_stderr_names_the_versions_without_from() {
+    fake_rt
+    FAKE_RT_OUT_images="$LOCAL_LIST" build "${ARGS[@]}"
+    assert_eq "exit" "$RC" "0"
+    assert_eq "the line, no from part" "$(grep '^build.sh: .NET SDK' <<<"$ERR")" \
+        "build.sh: .NET SDK 11.0.100-rc.3.26522.148, Playwright 1.64.1"
+}
+test_usage_stops_at_the_header() {
+    out="$(bash "$HARNESS_ROOT/images/build.sh" --help 2>&1)"
+    assert_eq "last line is the header's" "$(tail -n 1 <<<"$out")" "  push failed."
+    assert_not_contains "no code" "$out" "set -uo"
+}
+test_usage_shows_the_from_option() {
+    fake_rt
+    build
+    assert_contains "--from in the usage line" "$ERR" "| --from <repo> [--rev <rev>])"
+    assert_contains "--rev explained" "$ERR" "--rev"
+    assert_contains "exit 2 covers unreadable pins" "$ERR" "2 usage, or the repo's pins cannot be read"
+}
+
+# The image records its versions: each label is set from its own ARG, after the ARG lines (before
+# them the values would be empty). Checked statically; no test builds the real runner image.
+test_containerfile_labels_come_from_the_args_after_them() {
+    local cf="$HARNESS_ROOT/images/runner/Containerfile" key arg label_line last_arg key_line
+    label_line="$(grep -n '^LABEL ' "$cf" | cut -d: -f1)"
+    last_arg="$(grep -n '^ARG ' "$cf" | tail -1 | cut -d: -f1)"
+    for key in dotnet-sdk:DOTNET_SDK_VERSION playwright:PLAYWRIGHT_VERSION browsers:PLAYWRIGHT_BROWSERS; do
+        arg="${key#*:}"; key="${key%%:*}"
+        key_line="$(grep -nE "^(LABEL[[:space:]]+)?[[:space:]]*org\.chargehand\.runner\.$key=\"\\\$$arg\"" "$cf" | cut -d: -f1)"
+        assert_eq "label $key from \$$arg, once" "$(grep -c . <<<"$key_line")" "1"
+        assert_eq "label $key set in the LABEL, after the ARGs" "$(( ${key_line:-0} >= ${label_line:-999} && ${key_line:-0} > ${last_arg:-999} ))" "1"
+    done
+    assert_eq "one LABEL instruction" "$(grep -c '^LABEL ' "$cf")" "1"
+    assert_eq "LABEL after the last ARG" "$(( ${label_line:-0} > ${last_arg:-999} ))" "1"
+}
+
+# Renovate pins the base by digest (renovate.json): the FROM line must name a tag, with or without
+# "@sha256:<digest>", so its pin PR (and later digest PRs) keep this suite green.
+test_containerfile_from_names_a_tag_with_or_without_a_digest() {
+    local cf="$HARNESS_ROOT/images/runner/Containerfile" from
+    from="$(grep -E '^FROM[[:space:]]' "$cf")"
+    assert_eq "one FROM" "$(grep -c . <<<"$from")" "1"
+    assert_eq "a tag, optionally @sha256" \
+        "$(grep -cE '^FROM [a-z0-9.-]+(/[a-z0-9._-]+)+:[A-Za-z0-9_][A-Za-z0-9._-]*(@sha256:[0-9a-f]{64})?$' <<<"$from")" "1"
+}
+
 run_tests

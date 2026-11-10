@@ -15,14 +15,16 @@
 #                  "chargehand: verify of <sha> started <time>" the moment the launcher really starts.
 #                  --lane <name>: verify on the container lane <name> from lanes.json (ssh destination and
 #                  repos_dir) instead of the local sandbox: pushes the commit to the lane, runs
-#                  `.local/bin/chargehand-lane verify` (relative to the lane user's HOME) there over ssh. Same exit codes; the record says lane=<name>.
+#                  `.local/bin/chargehand-lane verify` (relative to the lane user's HOME) there over ssh. Same exit codes,
+#                  plus 5: the lane's runner image does not match the commit's version pins (or they cannot be
+#                  read); verify not run. The record says lane=<name>.
 #   accept [br]    fast-forward the target branch to agent/<br> (default the target), push the mirror,
 #                  delete your local brief/<tag> if it is now merged
 # Never build, test or run agent-authored code as yourself before accept. Reading diffs is safe.
 set -euo pipefail
 HARNESS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 . "$HARNESS_ROOT/scripts/lib/harness.sh"
-usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; }
 [ "${1:-}" = --project ] && [ "$#" -ge 2 ] || { usage; exit 2; }
 project="$2"; shift 2
 cmd="${1:-}"; [ "$#" -gt 0 ] && shift
@@ -113,6 +115,9 @@ verify)
         4)  if [ -n "$lane" ]; then echo "chargehand: verify not run: the lane's container runtime is unavailable" >&2
             else echo "chargehand: verify not run: the sandbox could not start (Podman socket missing?)" >&2; fi
             exit 4 ;;
+        5)  if [ -n "$lane" ]; then
+                echo "chargehand: verify not run: the lane's runner image does not match the commit's pins, or they cannot be read (see above)" >&2; exit 5
+            fi ;&   # without --lane, a 5 is the launcher's: on to the message below
         *)  if [ -n "$lane" ]; then
                 echo "chargehand: verify not run: could not reach or run the lane controller on $lane (ssh exit $rc)" >&2; exit "$rc"
             fi

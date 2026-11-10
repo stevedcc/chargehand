@@ -459,4 +459,182 @@ test_service_file_that_is_a_directory_is_refused() {
     assert_eq "exit" "$RC" "10"
     assert_contains "message" "$OUT" "service db: dev/login.html is not a regular file in $SHA7"
 }
+
+# The runner image's versions against the commit's pins (images/build.sh records them as labels).
+SDK_PIN=11.0.100-rc.3.26522.148 PW_PIN=1.64.1
+RUNNER="registry.example/runner@sha256:$D0"
+# write_pins: in the seed repo, global.json pinning $PIN_SDK and a csproj pinning Playwright
+# $PIN_PW (each only when set). Used as SEED='write_pins'.
+write_pins() {
+    [ -z "${PIN_SDK:-}" ] || printf '{ "sdk": { "version": "%s", "rollForward": "latestFeature" } }\n' "$PIN_SDK" > global.json
+    if [ -n "${PIN_PW:-}" ]; then
+        mkdir -p tests/E2E
+        printf '<Project Sdk="Microsoft.NET.Sdk">\n  <ItemGroup>\n    <PackageReference Include="Microsoft.Playwright.NUnit" Version="%s" />\n    <PackageReference Include="Deque.AxeCore.Playwright" Version="4.14.0" />\n  </ItemGroup>\n</Project>\n' "$PIN_PW" > tests/E2E/E2E.csproj
+    fi
+}
+pinned_setup() { PIN_SDK="${PIN_SDK-$SDK_PIN}" PIN_PW="${PIN_PW-$PW_PIN}" SEED=write_pins lane_setup "$@"; }
+# labels SDK PLAYWRIGHT BROWSERS: the `image inspect --format '{{json .Config.Labels}}'` output.
+labels() {
+    jq -cn --arg s "$1" --arg p "$2" --arg b "$3" \
+        '{"org.chargehand.runner.dotnet-sdk": $s, "org.chargehand.runner.playwright": $p, "org.chargehand.runner.browsers": $b, "other": "x"}'
+}
+# verify_split: like verify, stdout and stderr apart (in STDOUT and STDERR).
+verify_split() {
+    bash "$HARNESS_ROOT/scripts/lane.sh" verify --project demo "$SHA" >"$TEST_TMP/stdout" 2>"$TEST_TMP/stderr"; RC=$?
+    STDOUT="$(cat "$TEST_TMP/stdout")" STDERR="$(cat "$TEST_TMP/stderr")"
+}
+# assert_lines NAME ACTUAL EXPECTED: the same text, compared line by line.
+assert_lines() {
+    local -a a e; local i n
+    mapfile -t a <<<"$2"; mapfile -t e <<<"$3"
+    assert_eq "$1: line count" "${#a[@]}" "${#e[@]}"
+    n=${#e[@]}; [ "${#a[@]}" -gt "$n" ] && n=${#a[@]}
+    for ((i = 0; i < n; i++)); do assert_eq "$1: line $((i + 1))" "${a[$i]-<missing>}" "${e[$i]-<none>}"; done
+}
+label_reads() { grep -c "^podman image inspect --format {{json .Config.Labels}} $RUNNER$" "$TEST_TMP/rt.log"; }
+hint() {   # hint BROWSERS: the rebuild lines of the exit-5 message
+    printf '%s\n' "Rebuild it from the lane's repo:" \
+        "  images/build.sh runner --from $HOME/lane/repos/demo.git --rev $SHA --browsers \"$1\" --tag <registry/repo:tag> --push" \
+        "then set projects.demo.runner_image in lane.json to <registry/repo>@<the digest it prints>."
+}
+
+test_image_matching_the_pins_goes_on() {
+    pinned_setup
+    FAKE_RT_OUT_image="$(labels "$SDK_PIN" "$PW_PIN" chromium)" verify
+    assert_eq "exit" "$RC" "0"
+    assert_contains "labels read" "$(rt_log)" "podman image inspect --format {{json .Config.Labels}} $RUNNER"
+    assert_contains "restore ran" "$(rt_log)" "--name chv-$SHA7-restore "
+    assert_not_contains "no pull (the image is local)" "$(rt_log)" "podman pull"
+}
+test_image_with_another_sdk_exits_5_before_starting() {
+    pinned_setup
+    FAKE_RT_OUT_image="$(labels 11.0.100-rc.2.25502.107 "$PW_PIN" "chromium firefox")" verify_split
+    assert_eq "exit" "$RC" "5"
+    assert_lines "message" "$STDERR" "chargehand-lane: the runner image does not match $SHA7's pins:
+  .NET SDK: image 11.0.100-rc.2.25502.107, commit $SDK_PIN (global.json)
+$(hint "chromium firefox")"
+    assert_not_contains "no Playwright line" "$STDERR" "Playwright:"
+    assert_not_contains "no Verifying line on stdout" "$STDOUT" "Verifying"
+    assert_eq "nothing on stdout" "$STDOUT" ""
+    assert_not_contains "no container run" "$(rt_log)" "podman run "
+    assert_not_contains "no network created" "$(rt_log)" "network create"
+}
+test_image_with_another_playwright_exits_5() {
+    pinned_setup
+    FAKE_RT_OUT_image="$(labels "$SDK_PIN" 1.63.0 chromium)" verify_split
+    assert_eq "exit" "$RC" "5"
+    assert_lines "message" "$STDERR" "chargehand-lane: the runner image does not match $SHA7's pins:
+  Playwright: image 1.63.0, commit $PW_PIN
+$(hint chromium)"
+    assert_eq "nothing on stdout" "$STDOUT" ""
+    assert_not_contains "no container run" "$(rt_log)" "podman run "
+}
+test_image_differing_in_both_lists_both() {
+    pinned_setup
+    FAKE_RT_OUT_image="$(labels 10.0.100 1.63.0 chromium)" verify_split
+    assert_eq "exit" "$RC" "5"
+    assert_lines "message" "$STDERR" "chargehand-lane: the runner image does not match $SHA7's pins:
+  .NET SDK: image 10.0.100, commit $SDK_PIN (global.json)
+  Playwright: image 1.63.0, commit $PW_PIN
+$(hint chromium)"
+}
+test_image_without_labels_exits_5_not_recorded() {
+    local l
+    for l in '{}' null; do
+        pinned_setup
+        FAKE_RT_OUT_image="$l" verify_split
+        assert_eq "exit ($l)" "$RC" "5"
+        assert_lines "message ($l)" "$STDERR" "chargehand-lane: the runner image does not match $SHA7's pins:
+  .NET SDK: image not recorded, commit $SDK_PIN (global.json)
+  Playwright: image not recorded, commit $PW_PIN
+$(hint "<the browsers the project's tests need>")"
+        assert_eq "nothing on stdout ($l)" "$STDOUT" ""
+        rm -rf "$TEST_TMP/seed" "$HOME/lane"
+    done
+}
+test_a_project_pinning_only_the_sdk_gets_a_hint_without_from() {
+    # build.sh --from needs both pins, so the hint names the versions instead.
+    PIN_PW='' pinned_setup
+    FAKE_RT_OUT_image="$(labels 11.0.100-rc.2.25502.107 1.64.1 chromium)" verify_split
+    assert_eq "exit" "$RC" "5"
+    assert_contains "versions by hand" "$STDERR" \
+        "  images/build.sh runner --sdk $SDK_PIN --playwright <a Playwright version> --browsers \"chromium\" --tag <registry/repo:tag> --push"
+    assert_not_contains "no --from" "$STDERR" "--from"
+}
+test_only_the_pinned_version_is_compared() {
+    PIN_PW='' pinned_setup
+    FAKE_RT_OUT_image="$(labels "$SDK_PIN" "" chromium)" verify
+    assert_eq "an SDK-only project with a matching SDK goes on" "$RC" "0"
+}
+test_unreadable_pins_exit_5_without_an_inspect() {
+    SEED='printf "{\n  // dotnet allows this\n  \"sdk\": { \"version\": \"1.0.0\" }\n}\n" > global.json' lane_setup
+    verify_split
+    assert_eq "exit (comment)" "$RC" "5"
+    assert_eq "message (comment)" "$STDERR" "chargehand-lane: $SHA7's version pins cannot be read: global.json at $SHA7 is not plain JSON"
+    assert_eq "nothing on stdout (comment)" "$STDOUT" ""
+    assert_eq "no label read (comment)" "$(label_reads)" "0"
+    rm -rf "$TEST_TMP/seed" "$HOME/lane"
+    SEED='mkdir a b && printf "<Project><ItemGroup><PackageReference Include=\"Microsoft.Playwright\" Version=\"1.64.1\" /></ItemGroup></Project>\n" > a/A.csproj && printf "<Project><ItemGroup><PackageReference Include=\"Microsoft.Playwright.NUnit\" Version=\"1.63.0\" /></ItemGroup></Project>\n" > b/B.csproj' lane_setup
+    verify_split
+    assert_eq "exit (two versions)" "$RC" "5"
+    assert_eq "message (two versions)" "$STDERR" "chargehand-lane: $SHA7's version pins cannot be read: Playwright versions differ at $SHA7: 1.64.1 (a/A.csproj), 1.63.0 (b/B.csproj)"
+    assert_eq "no label read (two versions)" "$(label_reads)" "0"
+    assert_not_contains "no container run" "$(rt_log)" "podman run "
+}
+test_help_names_exit_5_and_stops_at_the_header() {
+    local out; out="$(bash "$HARNESS_ROOT/scripts/lane.sh" --help)"
+    assert_contains "exit 5" "$out" "5 the runner image does not match the commit's pinned .NET SDK or Playwright version"
+    assert_contains "exit 5, unreadable pins" "$out" "pins cannot be read (see the message)"
+    assert_eq "ends with the header" "$(tail -1 <<<"$out")" "  the runner's output, then \"digests: runner=<sha256> <service>=<sha256> ...\"."
+    assert_not_contains "nothing after the header" "$out" "set -uo"
+}
+test_failed_pull_is_could_not_run() {
+    pinned_setup
+    FAKE_RT_OUT_image="$(labels "$SDK_PIN" "$PW_PIN" chromium)" FAKE_RT_RC_image=125 FAKE_RT_RC_pull=1 verify
+    assert_eq "exit (pull fails)" "$RC" "1"
+    assert_contains "message (pull fails)" "$OUT" "chargehand-lane: could not pull $RUNNER"
+    assert_not_contains "not an old image (pull fails)" "$OUT" "not recorded"
+    assert_not_contains "no container run (pull fails)" "$(rt_log)" "podman run "
+    rm -rf "$TEST_TMP/seed" "$HOME/lane"
+    pinned_setup
+    FAKE_RT_OUT_image="$(labels "$SDK_PIN" "$PW_PIN" chromium)" FAKE_RT_RC_image=125 verify
+    assert_eq "exit (read after the pull fails)" "$RC" "1"
+    assert_contains "message (read after the pull fails)" "$OUT" "chargehand-lane: could not pull $RUNNER"
+    assert_not_contains "not an old image (read after the pull fails)" "$OUT" "not recorded"
+    assert_eq "one pull" "$(grep -c '^podman pull ' "$TEST_TMP/rt.log")" "1"
+}
+test_commit_without_pins_skips_the_check() {
+    lane_setup
+    verify
+    assert_eq "exit" "$RC" "0"
+    assert_eq "no label read" "$(label_reads)" "0"
+    assert_not_contains "no pull" "$(rt_log)" "podman pull"
+}
+test_image_not_local_is_pulled_once_then_read() {
+    pinned_setup
+    printf '125\n' > "$TEST_TMP/inspect-rcs"
+    FAKE_RT_RC_SEQ_image="$TEST_TMP/inspect-rcs" FAKE_RT_OUT_image="$(labels "$SDK_PIN" "$PW_PIN" chromium)" verify
+    assert_eq "exit" "$RC" "0"
+    assert_eq "exactly one pull, of the pinned reference" "$(grep '^podman pull ' "$TEST_TMP/rt.log")" "podman pull $RUNNER"
+    local first pull second
+    first="$(grep -n "{{json .Config.Labels}} $RUNNER$" "$TEST_TMP/rt.log" | sed -n 1p | cut -d: -f1)"
+    second="$(grep -n "{{json .Config.Labels}} $RUNNER$" "$TEST_TMP/rt.log" | sed -n 2p | cut -d: -f1)"
+    pull="$(grep -n '^podman pull ' "$TEST_TMP/rt.log" | cut -d: -f1)"
+    assert_eq "inspect, pull, inspect" "$(( ${first:-999} < ${pull:-0} && ${pull:-999} < ${second:-0} ))" "1"
+}
+test_apple_container_runtime_warns_and_goes_on() {
+    pinned_setup '.runtime = "container"'
+    cp "$HARNESS_ROOT/tests/fake_runtime.sh" "$TEST_TMP/bin/container"
+    FAKE_RT_OUT_image="$(labels 1.0.0 1.0.0 chromium)" verify
+    assert_contains "warning" "$OUT" "chargehand-lane: warning: runtime container: the runner image's versions are not checked"
+    assert_contains "verify went on" "$OUT" "Verifying $SHA7 demo subject"
+    assert_not_contains "no image-mismatch refusal" "$OUT" "does not match"
+    assert_not_contains "no pull" "$(rt_log)" "container image pull"
+    assert_not_contains "no label read" "$(rt_log)" "Config.Labels"
+    rm -rf "$TEST_TMP/seed" "$HOME/lane"
+    SEED='printf "{ // c\n}\n" > global.json' lane_setup '.runtime = "container"'
+    verify
+    assert_eq "unreadable pins still refused there" "$RC" "5"
+    assert_contains "message" "$OUT" "version pins cannot be read"
+}
 run_tests

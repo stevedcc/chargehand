@@ -8,3 +8,4 @@ Classification: rules skipped under a plausible workflow → prohibitions + the 
 ## Green (with skill):
 - PASS: fetch → read diff vs brief ("never build, test, or run it as myself") → sandboxed verify in background → README set aside as a patch, accept (ff only, "never merge --no-ff, squash, or cherry-pick") → re-apply, commit only after 07b → tells 07b to merge origin/blog-framework.
 - Note: it quoted the owner's memory ("append to docs/retrospectives.md"); that memory must point to records/ after migration (Task 16).
+- 2026-11-10, brief lane-image-pins: "Verifying on a lane" names exit 5 (runner image does not match the commit's pins, or they cannot be read): verify not run, ask the owner to rebuild, never accept or retry before. (Fact change, no new pressure test.)

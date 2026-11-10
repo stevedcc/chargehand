@@ -160,7 +160,10 @@ A verify can also run on a separate machine in an untrusted container (`agent-sy
 <name>`, set up with `setup-lane.sh` as the lane's own user, no sudo). The runner has no
 credentials and no runtime socket, runs as non-root UID 1000, and has outbound network only
 while restoring packages; build and tests run on a private internal network with the project's
-service containers. Images are pinned by digest and only pushed digests count. A project needs an
+service containers. Images are pinned by digest and only pushed digests count. The runner image
+is built from the project's own version pins (`images/build.sh runner --from <repo>`: the .NET SDK
+from `global.json`, Playwright from the project files) and records them; a verify whose commit
+pins other versions stops with exit 5 and the rebuild command. A project needs an
 external database via an environment variable instead of Testcontainers, and test categories
 that need the runtime itself do not run on a lane. See the `setting-up-agent-sandbox` and
 `verifying-and-accepting` skills.
