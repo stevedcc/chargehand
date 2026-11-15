@@ -25,10 +25,11 @@ render_rules() {
 # "instructions" once, defines the harness subagent with its prompt inlined (OpenCode v2's
 # agents take the prompt as text in "system"), and adds the Superpowers plugin pinned to
 # SUPERPOWERS_VERSION when no plugin entry names superpowers (the implementer rules use its
-# skills). An entry for the official repository (github.com/obra/superpowers, pinned or not) is
-# replaced by the current pin, so a new SUPERPOWERS_VERSION reaches the agent at the next setup;
-# any other superpowers entry (a fork) is kept. "no" leaves plugins alone. A test-runner agent
-# left by an older setup is removed.
+# skills). A string entry for the official repository (github.com/obra/superpowers or
+# github:obra/superpowers, any URL form, pinned or not) is replaced by the current pin, so a new
+# SUPERPOWERS_VERSION reaches the agent at the next setup; any other superpowers entry (a fork, or
+# an object entry {"package": ..., "options": ...}) is kept and counts as present. "no" leaves
+# plugins alone. A test-runner agent left by an older setup is removed.
 #
 # Pinned on purpose: OpenCode installs a git plugin once into its cache and never fetches it
 # again, so an unpinned entry froze the agents on whatever was current at setup (6.4.2 while the
@@ -41,12 +42,12 @@ render_opencode_config() {
     jq --arg share "$2" --arg m "$3" --arg sp "${4:-yes}" \
        --arg pin "superpowers@git+https://github.com/obra/superpowers.git#$SUPERPOWERS_VERSION" \
        --rawfile pa "$agents/pattern-applier.md" '
-      def official: test("^superpowers@git\\+https://github\\.com/obra/superpowers(\\.git)?(#.*)?$");
+      def official: type == "string" and test("github(\\.com)?[:/]obra/superpowers(\\.git)?(#.*)?$");
       (.instructions // []) as $i
       | .instructions = ($i - [$share + "/rules.md"] + [$share + "/rules.md"])
       | if $sp == "yes" then
           .plugins = ((.plugins // []) | map(if official then $pin else . end))
-          | if (.plugins | any(test("superpowers")) | not) then .plugins += [$pin] else . end
+          | if (.plugins | map(tostring) | any(test("superpowers")) | not) then .plugins += [$pin] else . end
         else . end
       | .agents = ((.agents // {}) | del(.["test-runner"])) + {
           "pattern-applier": {

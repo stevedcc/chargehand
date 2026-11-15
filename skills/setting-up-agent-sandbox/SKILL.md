@@ -63,6 +63,14 @@ sessions again (a brief may have started meanwhile; activity it cannot read coun
 for `start-server.sh` to be run again, checks the server refuses a request with no password, and prints the model allocation. Read the self-test lines
 and the allocation as in steps 4 and 1.
 
+## Updating the agents' Superpowers
+The agents' OpenCode loads the Superpowers plugin pinned to `SUPERPOWERS_VERSION`
+(`scripts/lib/render.sh`). OpenCode installs a plugin once and never fetches it again, so the pin is
+the only way a new release reaches the agents. Renovate opens a PR when Superpowers tags a release
+(no automerge: it changes how the agents work). After the owner merges it, the owner re-runs the
+agent setup (step 2; it moves the official plugin entry to the new tag and says so), then restarts
+the OpenCode server when no session is busy: a running server keeps the old version until then.
+
 ## Container lane
 A lane is a machine (or a dedicated user on one) that verifies commits in an untrusted runner
 container, as an alternative to the bubblewrap verify above. The runner has no credentials and no

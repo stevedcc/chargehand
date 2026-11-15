@@ -165,8 +165,10 @@ low="$(jq -r '.roles.low_level[0] // empty' "$HARNESS_CONFIG_DIR/models.json")"
 # "superpowers": false (for someone who supplies equivalent skills another way).
 sp="$(jq -r 'if .superpowers == false then "no" else "yes" end' "$HARNESS_CONFIG_DIR/config.json")"
 render_opencode_config "$work/base.json" "$SHARE" "$low" "$sp" > "$work/opencode.json"
-if [ "$sp" = yes ] && ! jq -e '(.plugins // []) | any(test("superpowers"))' "$work/base.json" >/dev/null 2>&1; then
-    echo "  added the Superpowers plugin for '$AGENT' (opencode.json \"plugins\"; set \"superpowers\": false in config.json to opt out)"
+# Report a change to the plugin list (added, or an official entry moved to SUPERPOWERS_VERSION):
+# OpenCode only loads it after a restart of the server.
+if [ "$sp" = yes ] && [ "$(jq -c '.plugins // []' "$work/base.json" 2>/dev/null || echo '[]')" != "$(jq -c '.plugins // []' "$work/opencode.json")" ]; then
+    echo "  Superpowers plugin for '$AGENT' set to $SUPERPOWERS_VERSION (opencode.json \"plugins\"; restart the OpenCode server to load it; set \"superpowers\": false in config.json to opt out)"
 fi
 as_agent sh -c 'umask 077; cat > "$1"' sh "$oc" < "$work/opencode.json"
 jq -c '{instructions, agents: (.agents | map_values(.model))}' "$work/opencode.json"
