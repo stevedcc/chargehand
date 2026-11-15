@@ -190,6 +190,13 @@ test_opencode_config_other_official_forms() {
         assert_eq "official form '$form' moves to the pin" "$(jq -c .plugins <<<"$out")" "[\"$pinned\"]"
     done
 }
+test_opencode_config_lookalike_hosts_are_not_official() {
+    for form in "superpowers@git+https://notgithub.com/obra/superpowers.git" "mygithub:obra/superpowers"; do
+        printf '{"plugins": ["%s"]}' "$form" > "$TEST_TMP/oc.json"
+        out="$(render_opencode_config "$TEST_TMP/oc.json" /s go/m-1)"
+        assert_eq "look-alike '$form' is kept, not repinned" "$(jq -c .plugins <<<"$out")" "[\"$form\"]"
+    done
+}
 test_renovate_regex_tracks_the_pin() {
     local rx
     rx="$(jq -r '.customManagers[0].matchStrings[0]' "$HARNESS_ROOT/renovate.json")"

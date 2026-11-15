@@ -70,6 +70,9 @@ the only way a new release reaches the agents. Renovate opens a PR when Superpow
 (no automerge: it changes how the agents work). After the owner merges it, the owner re-runs the
 agent setup (step 2; it moves the official plugin entry to the new tag and says so), then restarts
 the OpenCode server when no session is busy: a running server keeps the old version until then.
+Only a **string** plugin entry for the official repository is moved. An object entry
+(`{"package": ..., "options": ...}`) that names superpowers, or a fork, is left as it is and stops the
+pin from being added: pin such an entry by hand.
 
 ## Container lane
 A lane is a machine (or a dedicated user on one) that verifies commits in an untrusted runner

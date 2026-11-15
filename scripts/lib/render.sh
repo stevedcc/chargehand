@@ -42,7 +42,7 @@ render_opencode_config() {
     jq --arg share "$2" --arg m "$3" --arg sp "${4:-yes}" \
        --arg pin "superpowers@git+https://github.com/obra/superpowers.git#$SUPERPOWERS_VERSION" \
        --rawfile pa "$agents/pattern-applier.md" '
-      def official: type == "string" and test("github(\\.com)?[:/]obra/superpowers(\\.git)?(#.*)?$");
+      def official: type == "string" and test("(^|[^A-Za-z0-9.-])github(\\.com)?[:/]obra/superpowers(\\.git)?(#.*)?$");
       (.instructions // []) as $i
       | .instructions = ($i - [$share + "/rules.md"] + [$share + "/rules.md"])
       | if $sp == "yes" then
