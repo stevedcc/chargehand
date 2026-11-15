@@ -227,7 +227,11 @@ Once per machine; steps 4 and 5 again for each further project.
    from, the root-owned launcher `/usr/local/bin/chargehand-sandbox` and project settings
    (`/etc/chargehand/`), a sudoers entry allowing only the launcher's fixed forms, and the agent's
    OpenCode config: Chargehand's rules, the pinned pattern-applier subagent, and the
-   [Superpowers](https://github.com/obra/superpowers) plugin (added if missing; if your own
+   [Superpowers](https://github.com/obra/superpowers) plugin, pinned to a release tag
+   (`SUPERPOWERS_VERSION` in `scripts/lib/render.sh`; added if missing, an entry for the official
+   repository is moved to that tag, a fork is kept; OpenCode installs a plugin once and never
+   updates it, so the tag is the only way a new release reaches the agents: Renovate opens a PR for
+   it, then re-run this setup and restart the server). If your own
    `~/.config/opencode/opencode.json` exists, it is the starting point, providers included but
    without API keys, tokens or other credentials; setup lists what it dropped, and the agent logs
    in to its providers itself in step 5).
