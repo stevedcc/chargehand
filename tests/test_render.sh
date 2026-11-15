@@ -161,15 +161,34 @@ test_sudoers() {
     assert_contains "verify per project" "$out" '/usr/local/bin/chargehand-sandbox --verify --project demo *'
 }
 test_opencode_config_adds_superpowers() {
+    local pinned="superpowers@git+https://github.com/obra/superpowers.git#$SUPERPOWERS_VERSION"
     out="$(render_opencode_config /nonexistent /s go/m-1)"
-    assert_eq "added when missing" "$(jq -c .plugins <<<"$out")" '["superpowers@git+https://github.com/obra/superpowers.git"]'
+    assert_eq "added when missing, pinned" "$(jq -c .plugins <<<"$out")" "[\"$pinned\"]"
     echo '{"plugins": ["other-plugin"]}' > "$TEST_TMP/oc.json"
     out="$(render_opencode_config "$TEST_TMP/oc.json" /s go/m-1)"
-    assert_eq "appended to others" "$(jq -c .plugins <<<"$out")" '["other-plugin","superpowers@git+https://github.com/obra/superpowers.git"]'
+    assert_eq "appended to others, pinned" "$(jq -c .plugins <<<"$out")" "[\"other-plugin\",\"$pinned\"]"
     echo '{"plugins": ["superpowers@git+https://example/fork.git"]}' > "$TEST_TMP/oc.json"
     out="$(render_opencode_config "$TEST_TMP/oc.json" /s go/m-1)"
     assert_eq "an existing superpowers entry is kept, not doubled" "$(jq -c .plugins <<<"$out")" '["superpowers@git+https://example/fork.git"]'
     out="$(render_opencode_config /nonexistent /s go/m-1 no)"
     assert_eq "opt-out" "$(jq -c '.plugins // []' <<<"$out")" '[]'
+}
+test_opencode_config_pins_official_superpowers() {
+    local pinned="superpowers@git+https://github.com/obra/superpowers.git#$SUPERPOWERS_VERSION"
+    assert_contains "the pin is a release tag" "$SUPERPOWERS_VERSION" 'v'
+    echo '{"plugins": ["other-plugin", "superpowers@git+https://github.com/obra/superpowers.git"]}' > "$TEST_TMP/oc.json"
+    out="$(render_opencode_config "$TEST_TMP/oc.json" /s go/m-1)"
+    assert_eq "an unpinned official entry is replaced in place" "$(jq -c .plugins <<<"$out")" "[\"other-plugin\",\"$pinned\"]"
+    echo '{"plugins": ["superpowers@git+https://github.com/obra/superpowers.git#v6.4.2"]}' > "$TEST_TMP/oc.json"
+    out="$(render_opencode_config "$TEST_TMP/oc.json" /s go/m-1)"
+    assert_eq "an older pinned official entry moves to the current pin" "$(jq -c .plugins <<<"$out")" "[\"$pinned\"]"
+    echo '{"plugins": ["superpowers@git+https://github.com/obra/superpowers#v6.4.2"]}' > "$TEST_TMP/oc.json"
+    out="$(render_opencode_config "$TEST_TMP/oc.json" /s go/m-1)"
+    assert_eq "also without .git" "$(jq -c .plugins <<<"$out")" "[\"$pinned\"]"
+    again="$(echo "$out" > "$TEST_TMP/oc2.json"; render_opencode_config "$TEST_TMP/oc2.json" /s go/m-1)"
+    assert_eq "idempotent" "$(jq -c .plugins <<<"$again")" "[\"$pinned\"]"
+    echo '{"plugins": ["superpowers@git+https://github.com/obra/superpowers.git"]}' > "$TEST_TMP/oc.json"
+    out="$(render_opencode_config "$TEST_TMP/oc.json" /s go/m-1 no)"
+    assert_eq "opt-out leaves an existing entry alone" "$(jq -c .plugins <<<"$out")" '["superpowers@git+https://github.com/obra/superpowers.git"]'
 }
 run_tests

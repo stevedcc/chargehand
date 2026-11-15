@@ -4,9 +4,49 @@
     "config:recommended"
   ],
   "packageRules": [
-    { "matchManagers": ["dockerfile"], "matchFileNames": ["images/**"], "pinDigests": true },
-    { "matchManagers": ["dockerfile"], "matchFileNames": ["images/**"], "matchUpdateTypes": ["digest", "pinDigest"],
-      "automerge": true, "automergeType": "pr", "ignoreTests": true,
-      "description": "ignoreTests: this repo has no CI, so a PR would otherwise never be green. A base digest bump is only built when the owner runs images/build.sh, and that build is its test." }
+    {
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchFileNames": [
+        "images/**"
+      ],
+      "pinDigests": true
+    },
+    {
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchFileNames": [
+        "images/**"
+      ],
+      "matchUpdateTypes": [
+        "digest",
+        "pinDigest"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "ignoreTests": true,
+      "description": "ignoreTests: this repo has no CI, so a PR would otherwise never be green. A base digest bump is only built when the owner runs images/build.sh, and that build is its test."
+    },
+    {
+      "matchDepNames": [
+        "obra/superpowers"
+      ],
+      "automerge": false,
+      "description": "No automerge: a new Superpowers release changes how implementers and reviewers work. After merging, re-run the agent setup (it rewrites the plugin entry) and restart the OpenCode server."
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The Superpowers plugin the agents' OpenCode loads (scripts/lib/render.sh, SUPERPOWERS_VERSION).",
+      "managerFilePatterns": [
+        "/^scripts/lib/render\\.sh$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\s+SUPERPOWERS_VERSION=\"(?<currentValue>[^\"]+)\""
+      ]
+    }
   ]
 }
